@@ -50,9 +50,14 @@ struct BrowserCDPPanelView: View {
             .padding()
         }
         .overlay(
-            CDPPanelFrameObserver(onScreenRectChange: { [weak panel] rect in
-                panel?.pushBounds(rect)
-            })
+            CDPPanelFrameObserver(
+                onScreenRectChange: { [weak panel] rect in
+                    panel?.pushBounds(rect)
+                },
+                onWindowVisibilityChange: { [weak panel] windowVisible in
+                    panel?.setVisible(windowVisible)
+                }
+            )
             .allowsHitTesting(false)
         )
         .onChange(of: isVisibleInUI) { newValue in
@@ -66,19 +71,23 @@ struct BrowserCDPPanelView: View {
 /// view's backing NSView. Emits the on-screen rect in CDP top-origin coords.
 private struct CDPPanelFrameObserver: NSViewRepresentable {
     let onScreenRectChange: (CGRect) -> Void
+    let onWindowVisibilityChange: (Bool) -> Void
 
     func makeNSView(context: Context) -> ObserverView {
         let view = ObserverView()
         view.onScreenRectChange = onScreenRectChange
+        view.onWindowVisibilityChange = onWindowVisibilityChange
         return view
     }
 
     func updateNSView(_ nsView: ObserverView, context: Context) {
         nsView.onScreenRectChange = onScreenRectChange
+        nsView.onWindowVisibilityChange = onWindowVisibilityChange
     }
 
     final class ObserverView: NSView {
         var onScreenRectChange: ((CGRect) -> Void)?
+        var onWindowVisibilityChange: ((Bool) -> Void)?
 
         override init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
@@ -113,13 +122,37 @@ private struct CDPPanelFrameObserver: NSViewRepresentable {
             let center = NotificationCenter.default
             for token in windowObservers { center.removeObserver(token) }
             windowObservers.removeAll()
-            guard let window else { return }
+            guard let window else {
+                // View was removed from its window — treat as not visible.
+                onWindowVisibilityChange?(false)
+                return
+            }
             for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification] {
                 let token = center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
                     self?.publishCurrentRect()
                 }
                 windowObservers.append(token)
             }
+            let miniToken = center.addObserver(
+                forName: NSWindow.didMiniaturizeNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                self?.onWindowVisibilityChange?(false)
+            }
+            windowObservers.append(miniToken)
+            let demini = center.addObserver(
+                forName: NSWindow.didDeminiaturizeNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                self?.onWindowVisibilityChange?(true)
+                self?.publishCurrentRect()
+            }
+            windowObservers.append(demini)
+            // Propagate current visibility on install (miniaturized state is
+            // sticky across window-assignment transitions).
+            onWindowVisibilityChange?(!window.isMiniaturized && window.isVisible)
         }
 
         private func publishCurrentRect() {
