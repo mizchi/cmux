@@ -6343,6 +6343,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.browser", defaultValue: "Browser")
         case .markdown:
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
+        case .browserCDP:
+            return "Chromium (CDP)"
         }
     }
 
@@ -6354,6 +6356,8 @@ struct ContentView: View {
             return ["browser", "web", "page"]
         case .markdown:
             return ["markdown", "note", "preview"]
+        case .browserCDP:
+            return ["chromium", "cdp", "playwright", "browser"]
         }
     }
 

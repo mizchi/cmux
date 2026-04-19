@@ -493,6 +493,9 @@ extension Workspace {
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
+        case .browserCDP:
+            // Phase 2: BrowserCDP panels are Debug-only and not persisted across sessions yet.
+            return nil
         }
 
         return SessionPanelSnapshot(
@@ -683,6 +686,9 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: markdownPanel.id)
             return markdownPanel.id
+        case .browserCDP:
+            // Phase 2: BrowserCDP panels are not restored from session snapshots yet.
+            return nil
         }
     }
 
@@ -7268,6 +7274,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.browser
         case .markdown:
             return SurfaceKind.markdown
+        case .browserCDP:
+            return "browser-cdp"
         }
     }
 
