@@ -13,6 +13,12 @@ final class ChromiumLaunchManager {
         return proc.processIdentifier
     }
 
+    /// Called on the main queue when the subprocess exits for any reason
+    /// (user ⌘Q on Chromium, renderer crash, SIGKILL, explicit terminate).
+    /// Fires exactly once per launch() call.
+    var onProcessExit: (() -> Void)?
+    private var terminationReported = false
+
     #if DEBUG
     var userDataDirForTesting: URL? { userDataDir }
     #endif
@@ -56,6 +62,14 @@ final class ChromiumLaunchManager {
         }
         stderrPipe.fileHandleForReading.readabilityHandler = { handle in
             _ = handle.availableData
+        }
+
+        proc.terminationHandler = { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self, !self.terminationReported else { return }
+                self.terminationReported = true
+                self.onProcessExit?()
+            }
         }
 
         do {

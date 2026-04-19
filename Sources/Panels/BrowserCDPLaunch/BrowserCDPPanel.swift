@@ -44,6 +44,9 @@ final class BrowserCDPPanel: Panel, ObservableObject {
         do {
             let binary = try locator.locate()
             self.manager = ChromiumLaunchManager(binary: binary)
+            manager.onProcessExit = { [weak self] in
+                self?.handleChromiumExited()
+            }
             launch()
         } catch {
             // Initialize with an unusable manager; we report the error via status.
@@ -51,6 +54,26 @@ final class BrowserCDPPanel: Panel, ObservableObject {
                 binary: ChromiumBinary(path: "/dev/null", source: .envOverride)
             )
             self.statusMessage = "Chromium not found. Set CMUX_CHROMIUM_PATH or run `npx playwright install chromium`."
+        }
+    }
+
+    /// Chromium exited externally (user ⌘Q'd Chromium, crashed, etc.).
+    /// Tear down our CDP client + AX observer and update the view status
+    /// so the user sees the state. The panel itself stays open so the
+    /// user can close the tab or notice the exit.
+    private func handleChromiumExited() {
+        guard !isClosed else { return }
+        pendingBoundsPush?.cancel()
+        pendingBoundsPush = nil
+        axObserver?.stop()
+        axObserver = nil
+        cachedWindowId = nil
+        let existingClient = client
+        client = nil
+        endpoint = nil
+        statusMessage = "Chromium exited."
+        if let existingClient {
+            Task<Void, Never> { await existingClient.close() }
         }
     }
 
