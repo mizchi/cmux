@@ -505,6 +505,9 @@ struct cmuxApp: App {
                     Button("Launch Chromium (CDP)…") {
                         Task.detached { await BrowserCDPDebugLauncher.launchAndReportURL() }
                     }
+                    Button("Move Chromium to cmux Window") {
+                        Task.detached { await BrowserCDPDebugLauncher.moveChromiumToCmuxMainWindow() }
+                    }
                     Button("Menu Bar Extra Debug…") {
                         MenuBarExtraDebugWindowController.shared.show()
                     }
