@@ -29,7 +29,15 @@ final class CDPWebSocketTransport: CDPTransport {
         let (stream, continuation) = AsyncStream<Data>.makeStream()
         let config = URLSessionConfiguration.default
         let session = URLSession(configuration: config)
-        let task = session.webSocketTask(with: url)
+        // Chromium 147+ enforces `--remote-allow-origins` and rejects
+        // WebSocket upgrades whose request lacks an Origin header. Set
+        // Origin explicitly to a localhost value; `*` in the flag
+        // (which we pass at launch) matches any origin as long as the
+        // header is present.
+        var request = URLRequest(url: url)
+        let origin = "http://\(url.host ?? "127.0.0.1"):\(url.port ?? 0)"
+        request.setValue(origin, forHTTPHeaderField: "Origin")
+        let task = session.webSocketTask(with: request)
 
         lock.lock()
         self.stream = stream

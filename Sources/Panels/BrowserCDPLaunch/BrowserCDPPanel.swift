@@ -107,6 +107,9 @@ final class BrowserCDPPanel: Panel, ObservableObject {
     /// user can close the tab or notice the exit.
     private func handleChromiumExited() {
         guard !isClosed else { return }
+        #if DEBUG
+        dlog("browserCDP: handleChromiumExited fired")
+        #endif
         pendingBoundsPush?.cancel()
         pendingBoundsPush = nil
         axObserver?.stop()
@@ -245,10 +248,19 @@ final class BrowserCDPPanel: Panel, ObservableObject {
             self.lastFrame = image
             self.onScreencastFrame?(image)
         }
+        #if DEBUG
+        dlog("browserCDP: startScreencastIfNeeded size=\(size) maxW=\(maxW) maxH=\(maxH)")
+        #endif
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                let (_, sid) = try await self.ensurePageSession(cdp: cdp)
+                #if DEBUG
+                dlog("browserCDP: ensurePageSession…")
+                #endif
+                let (tid, sid) = try await self.ensurePageSession(cdp: cdp)
+                #if DEBUG
+                dlog("browserCDP: attached target=\(tid) session=\(sid)")
+                #endif
                 self.inputRouter = ChromiumCDPInputRouter(client: cdp, sessionId: sid)
                 try await cdp.emulationSetDeviceMetricsOverride(
                     sessionId: sid,
@@ -256,7 +268,13 @@ final class BrowserCDPPanel: Panel, ObservableObject {
                     height: Int(size.height),
                     deviceScaleFactor: Double(scale)
                 )
+                #if DEBUG
+                dlog("browserCDP: setDeviceMetricsOverride ok")
+                #endif
                 try await session.start(pageSessionId: sid, maxWidth: maxW, maxHeight: maxH)
+                #if DEBUG
+                dlog("browserCDP: screencast started")
+                #endif
             } catch {
                 #if DEBUG
                 dlog("browserCDP: screencast start failed: \(error)")
