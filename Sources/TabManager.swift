@@ -5305,6 +5305,29 @@ class TabManager: ObservableObject {
         return tab.browserPanel(for: panelId)
     }
 
+    /// Create a new BrowserCDP panel in the given workspace + pane.
+    @discardableResult
+    func newBrowserCDPSurface(tabId: UUID, inPane paneId: PaneID) -> UUID? {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
+        return tab.newBrowserCDPSurface(inPane: paneId)?.id
+    }
+
+    /// Get a BrowserCDP panel by ID.
+    func browserCDPPanel(tabId: UUID, panelId: UUID) -> BrowserCDPPanel? {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
+        return tab.browserCDPPanel(for: panelId)
+    }
+
+    /// Convenience: create a BrowserCDP panel in the currently selected workspace's
+    /// focused pane. Returns nil if no workspace or pane is active. Debug-only UI
+    /// (e.g. the Debug menu) is the primary caller.
+    @discardableResult
+    func newBrowserCDPInFocusedPane() -> UUID? {
+        guard let workspace = selectedWorkspace else { return nil }
+        guard let paneId = workspace.bonsplitController.focusedPaneId else { return nil }
+        return workspace.newBrowserCDPSurface(inPane: paneId, focus: true)?.id
+    }
+
     /// Open a browser in a specific workspace, optionally preferring a split-right layout.
     @discardableResult
     func openBrowser(
