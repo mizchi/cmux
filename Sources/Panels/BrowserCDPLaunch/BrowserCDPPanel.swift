@@ -372,13 +372,35 @@ final class BrowserCDPPanel: Panel, ObservableObject {
     /// coordinates (CDP convention). The rect is remembered even when the
     /// CDP client is not yet connected; it replays on connect.
     ///
-    /// Skipped when the panel is in capture mode — there, Chromium is
-    /// intentionally stashed off-screen so the user only sees the
-    /// in-panel capture, not the native Chromium window.
+    /// In capture mode we do NOT position Chromium at the panel's on-screen
+    /// rect — Chromium is stashed off-screen — but we DO resize it to
+    /// match the panel's dimensions so the captured pixels align with
+    /// the view 1:1.
     func pushBounds(_ rect: CGRect) {
         guard !isClosed else { return }
         lastRequestedRect = rect
-        guard client != nil, !captureMode else { return }
+        guard client != nil else { return }
+        if captureMode {
+            // Match Chromium's window size to the panel (still off-screen)
+            // so capture pixels align with the panel 1:1. Debounce so a
+            // live resize doesn't spam setWindowBounds.
+            pendingBoundsPush?.cancel()
+            let block: @Sendable () -> Void = { [weak self] in
+                guard let self else { return }
+                MainActor.assumeIsolated {
+                    let _: Task<Void, Never> = Task { [weak self] in
+                        await self?.stashChromiumOffScreen()
+                    }
+                }
+            }
+            let work = DispatchWorkItem(block: block)
+            pendingBoundsPush = work
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + .milliseconds(Self.debounceMs),
+                execute: work
+            )
+            return
+        }
         pendingBoundsPush?.cancel()
         let block: @Sendable () -> Void = { [weak self] in
             guard let self else { return }

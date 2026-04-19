@@ -61,7 +61,7 @@ struct ChromiumCaptureView: NSViewRepresentable {
         }
 
         private func commonInit() {
-            layer?.contentsGravity = .resizeAspect
+            layer?.contentsGravity = .resizeAspectFill
             layer?.backgroundColor = NSColor.black.cgColor
             layer?.masksToBounds = true
             if let screen = window?.screen ?? NSScreen.main {
@@ -73,7 +73,7 @@ struct ChromiumCaptureView: NSViewRepresentable {
         /// lacks our contentsGravity setting during view-hierarchy churn.
         override func makeBackingLayer() -> CALayer {
             let layer = CALayer()
-            layer.contentsGravity = .resizeAspect
+            layer.contentsGravity = .resizeAspectFill
             layer.backgroundColor = NSColor.black.cgColor
             layer.masksToBounds = true
             if let screen = NSScreen.main {
@@ -103,7 +103,7 @@ struct ChromiumCaptureView: NSViewRepresentable {
             // have known at construction time).
             let scale = window?.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
             layer?.contentsScale = scale
-            layer?.contentsGravity = .resizeAspect
+            layer?.contentsGravity = .resizeAspectFill
             layer?.contents = cgImage
             let newSize = CGSize(width: extent.width, height: extent.height)
             if newSize != lastContentSize {
@@ -119,7 +119,7 @@ struct ChromiumCaptureView: NSViewRepresentable {
         private func contentPoint(for event: NSEvent) -> CGPoint {
             // Map view-local NSEvent point → Chromium CSS-pixel viewport coord,
             // accounting for (1) backing-scale between capture pixels and CSS
-            // pixels, (2) `.resizeAspect` letterbox offsets inside the view.
+            // pixels, (2) `.resizeAspectFill` letterbox offsets inside the view.
             let viewPoint = convert(event.locationInWindow, from: nil)
             let backing = window?.screen?.backingScaleFactor ?? 2
             guard lastContentSize.width > 0, lastContentSize.height > 0,
