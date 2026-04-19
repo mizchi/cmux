@@ -51,14 +51,42 @@ struct ChromiumCaptureView: NSViewRepresentable {
         override init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
             wantsLayer = true
-            layer?.contentsGravity = .resizeAspectFill
-            layer?.backgroundColor = NSColor.black.cgColor
+            commonInit()
         }
 
         required init?(coder: NSCoder) {
             super.init(coder: coder)
             wantsLayer = true
-            layer?.contentsGravity = .resizeAspectFill
+            commonInit()
+        }
+
+        private func commonInit() {
+            layer?.contentsGravity = .resizeAspect
+            layer?.backgroundColor = NSColor.black.cgColor
+            layer?.masksToBounds = true
+            if let screen = window?.screen ?? NSScreen.main {
+                layer?.contentsScale = screen.backingScaleFactor
+            }
+        }
+
+        /// Ensure AppKit doesn't replace our backing layer with one that
+        /// lacks our contentsGravity setting during view-hierarchy churn.
+        override func makeBackingLayer() -> CALayer {
+            let layer = CALayer()
+            layer.contentsGravity = .resizeAspect
+            layer.backgroundColor = NSColor.black.cgColor
+            layer.masksToBounds = true
+            if let screen = NSScreen.main {
+                layer.contentsScale = screen.backingScaleFactor
+            }
+            return layer
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let screen = window?.screen {
+                layer?.contentsScale = screen.backingScaleFactor
+            }
         }
 
         override var acceptsFirstResponder: Bool { true }
@@ -69,6 +97,13 @@ struct ChromiumCaptureView: NSViewRepresentable {
             let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
             let extent = ciImage.extent
             guard let cgImage = ciContext.createCGImage(ciImage, from: extent) else { return }
+            // Re-assert gravity + contentsScale on every frame; AppKit can
+            // reset these during layout/tab-switch churn, and the right
+            // scale depends on the current screen (which the view may not
+            // have known at construction time).
+            let scale = window?.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+            layer?.contentsScale = scale
+            layer?.contentsGravity = .resizeAspect
             layer?.contents = cgImage
             let newSize = CGSize(width: extent.width, height: extent.height)
             if newSize != lastContentSize {
@@ -82,13 +117,31 @@ struct ChromiumCaptureView: NSViewRepresentable {
         // MARK: - Input forwarding
 
         private func contentPoint(for event: NSEvent) -> CGPoint {
-            // Convert view-local bottom-origin → CDP top-origin, then
-            // rescale into the captured content's native pixel space.
+            // Map view-local NSEvent point → Chromium CSS-pixel viewport coord,
+            // accounting for (1) backing-scale between capture pixels and CSS
+            // pixels, (2) `.resizeAspect` letterbox offsets inside the view.
             let viewPoint = convert(event.locationInWindow, from: nil)
-            let scaleX = lastContentSize.width / max(bounds.width, 1)
-            let scaleY = lastContentSize.height / max(bounds.height, 1)
+            let backing = window?.screen?.backingScaleFactor ?? 2
+            guard lastContentSize.width > 0, lastContentSize.height > 0,
+                  bounds.width > 0, bounds.height > 0 else {
+                return .zero
+            }
+            // Captured image is in device pixels; convert to CSS points.
+            let imagePointWidth = lastContentSize.width / backing
+            let imagePointHeight = lastContentSize.height / backing
+            // Aspect-fit: the image occupies a centered rectangle that fills
+            // one axis completely and is letterboxed on the other.
+            let scale = min(bounds.width / imagePointWidth,
+                            bounds.height / imagePointHeight)
+            let displayedW = imagePointWidth * scale
+            let displayedH = imagePointHeight * scale
+            let offsetX = (bounds.width - displayedW) / 2
+            let offsetY = (bounds.height - displayedH) / 2
+            let localX = (viewPoint.x - offsetX) / scale
+            // NSView uses bottom-origin; CDP uses top-origin.
             let flippedY = bounds.height - viewPoint.y
-            return CGPoint(x: viewPoint.x * scaleX, y: flippedY * scaleY)
+            let localY = (flippedY - offsetY) / scale
+            return CGPoint(x: localX, y: localY)
         }
 
         override func mouseDown(with event: NSEvent)        { dispatchMouse(event) }

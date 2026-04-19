@@ -42,14 +42,19 @@ final class ChromiumLaunchManager {
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: binary.path)
+        // `--app=<url>` makes Chromium open a single chromeless window
+        // (no tab bar, no address bar). The captured window is then
+        // exactly the page viewport, so coordinates round-trip through
+        // the capture view → CDP cleanly.
+        let appURL = (initialURL?.absoluteString) ?? "about:blank"
         var args = [
             "--remote-debugging-port=0",
             "--user-data-dir=\(dir.path)",
             "--no-first-run",
             "--no-default-browser-check",
             "--remote-allow-origins=*",
+            "--app=\(appURL)",
         ]
-        if let initialURL { args.append(initialURL.absoluteString) }
         proc.arguments = args
 
         let stdoutPipe = Pipe()
