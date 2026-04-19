@@ -511,6 +511,9 @@ struct cmuxApp: App {
                     Button("Toggle Chromium Auto-Follow") {
                         BrowserCDPDebugLauncher.toggleAutoFollow()
                     }
+                    Button("New Chromium Panel") {
+                        _ = activeTabManager.newBrowserCDPInFocusedPane()
+                    }
                     Button("Menu Bar Extra Debug…") {
                         MenuBarExtraDebugWindowController.shared.show()
                     }
