@@ -87,14 +87,21 @@ struct BrowserCDPPanelView: View {
 
     @ViewBuilder private var content: some View {
         ZStack {
-            if panel.captureMode, #available(macOS 12.3, *), let stream = panel.captureStream {
-                ChromiumCaptureView(
-                    sampleBufferStream: stream,
-                    inputRouter: panel.inputRouter,
-                    contentSize: $captureContentSize
-                )
-            } else {
+            ChromiumScreencastView(
+                inputRouter: panel.inputRouter,
+                attachView: { [weak panel] nsView in
+                    guard let panel else { return }
+                    // Push any already-received frame so late mounts see
+                    // something instead of black.
+                    if let last = panel.lastFrame { nsView.setFrame(last) }
+                    panel.onScreencastFrame = { [weak nsView] cg in
+                        nsView?.setFrame(cg)
+                    }
+                }
+            )
+            if panel.lastFrame == nil {
                 parkPlaceholder
+                    .allowsHitTesting(false)
             }
         }
     }

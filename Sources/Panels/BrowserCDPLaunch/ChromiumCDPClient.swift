@@ -9,9 +9,16 @@ actor ChromiumCDPClient {
     private var inflight: [Int: CheckedContinuation<[String: Any], Error>] = [:]
     private var eventTask: Task<Void, Never>?
     private var connected = false
+    /// Delivered on the actor's executor for every CDP event (frames with
+    /// no `id`). Method name, params dict, and optional sessionId.
+    var eventHandler: ((String, [String: Any], String?) -> Void)?
 
     init(transport: CDPTransport) {
         self.transport = transport
+    }
+
+    func setEventHandler(_ handler: ((String, [String: Any], String?) -> Void)?) {
+        eventHandler = handler
     }
 
     func connect() async throws {
@@ -77,8 +84,14 @@ actor ChromiumCDPClient {
                 let result = obj["result"] as? [String: Any] ?? [:]
                 cont.resume(returning: result)
             }
+            return
         }
-        // Events (no id) are ignored in Phase 2 MVP. Phase 2b will surface them.
+        // Event (no id): forward to the event handler if any.
+        if let method = obj["method"] as? String {
+            let params = (obj["params"] as? [String: Any]) ?? [:]
+            let sessionId = obj["sessionId"] as? String
+            eventHandler?(method, params, sessionId)
+        }
     }
 }
 
@@ -165,5 +178,60 @@ extension ChromiumCDPClient {
             "expression": "history.forward()",
             "awaitPromise": false,
         ], sessionId: sessionId)
+    }
+
+    /// Page.enable on a session so Page events (screencastFrame etc.) fire.
+    func pageEnable(sessionId: String) async throws {
+        _ = try await send(method: "Page.enable", params: [:], sessionId: sessionId)
+    }
+
+    /// Begin streaming per-frame screenshots of the rendered page. Emits
+    /// `Page.screencastFrame` events each with a base64 JPEG payload.
+    func pageStartScreencast(
+        sessionId: String,
+        format: String = "jpeg",
+        quality: Int = 80,
+        maxWidth: Int,
+        maxHeight: Int,
+        everyNthFrame: Int = 1
+    ) async throws {
+        _ = try await send(method: "Page.startScreencast", params: [
+            "format": format,
+            "quality": quality,
+            "maxWidth": maxWidth,
+            "maxHeight": maxHeight,
+            "everyNthFrame": everyNthFrame,
+        ], sessionId: sessionId)
+    }
+
+    func pageStopScreencast(sessionId: String) async throws {
+        _ = try await send(method: "Page.stopScreencast", params: [:], sessionId: sessionId)
+    }
+
+    func pageScreencastFrameAck(sessionId: String, frameSessionId: Int) async throws {
+        _ = try await send(method: "Page.screencastFrameAck", params: [
+            "sessionId": frameSessionId,
+        ], sessionId: sessionId)
+    }
+
+    /// Override the rendered viewport. Used to make Chromium's page size
+    /// match the cmux panel exactly so captured frames are 1:1.
+    func emulationSetDeviceMetricsOverride(
+        sessionId: String,
+        width: Int,
+        height: Int,
+        deviceScaleFactor: Double = 2.0,
+        mobile: Bool = false
+    ) async throws {
+        _ = try await send(method: "Emulation.setDeviceMetricsOverride", params: [
+            "width": width,
+            "height": height,
+            "deviceScaleFactor": deviceScaleFactor,
+            "mobile": mobile,
+        ], sessionId: sessionId)
+    }
+
+    func emulationClearDeviceMetricsOverride(sessionId: String) async throws {
+        _ = try await send(method: "Emulation.clearDeviceMetricsOverride", params: [:], sessionId: sessionId)
     }
 }

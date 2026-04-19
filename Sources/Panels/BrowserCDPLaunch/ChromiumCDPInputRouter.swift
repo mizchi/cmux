@@ -11,9 +11,14 @@ import AppKit
 @MainActor
 final class ChromiumCDPInputRouter {
     private let client: ChromiumCDPClient
+    /// If set, Input.dispatch* is routed through this page session.
+    /// Required for headless operation where browser-level input has
+    /// no default target.
+    var sessionId: String?
 
-    init(client: ChromiumCDPClient) {
+    init(client: ChromiumCDPClient, sessionId: String? = nil) {
         self.client = client
+        self.sessionId = sessionId
     }
 
     /// Dispatch a mouse event. `location` is the cursor position inside
@@ -50,7 +55,7 @@ final class ChromiumCDPInputRouter {
             params["deltaX"] = event.scrollingDeltaX
             params["deltaY"] = event.scrollingDeltaY
         }
-        try? await client.send(method: "Input.dispatchMouseEvent", params: params)
+        try? await client.send(method: "Input.dispatchMouseEvent", params: params, sessionId: sessionId)
     }
 
     /// Dispatch a key event. Caller is responsible for recording whether
@@ -68,7 +73,7 @@ final class ChromiumCDPInputRouter {
             "windowsVirtualKeyCode": Int(event.keyCode),
             "nativeVirtualKeyCode": Int(event.keyCode),
         ]
-        try? await client.send(method: "Input.dispatchKeyEvent", params: params)
+        try? await client.send(method: "Input.dispatchKeyEvent", params: params, sessionId: sessionId)
     }
 
     enum KeyType: String {

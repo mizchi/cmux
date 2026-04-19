@@ -51,23 +51,25 @@ final class BrowserCDPPanel: Panel, ObservableObject {
     /// button in the view.
     @Published private(set) var isChromiumExited: Bool = false
 
-    /// Phase 3b opt-in: when true, the panel view renders Chromium pixels
-    /// directly via ScreenCaptureKit and routes mouse/key input via CDP
-    /// Input.dispatch*. When false (default) the park path is used.
-    @Published private(set) var captureMode: Bool = false
+    /// Phase 3b captured Chromium via SCStream against a visible window.
+    /// Phase 3c switched to headless Chromium + CDP Page.startScreencast,
+    /// so there is no "mode" anymore — rendering is always via screencast.
+    /// Kept for binary compat with the old view bindings; always true
+    /// once the CDP client has connected.
+    @Published private(set) var captureMode: Bool = true
 
-    /// Storage for the capture stream. Kept type-erased to avoid
-    /// sprinkling @available guards through the class; the stored value
-    /// is always an `AnyObject?` that downcasts to
-    /// `ChromiumScreenCaptureStream` when the macOS version supports it.
-    private var captureStreamStorage: AnyObject?
-    /// Exposed to BrowserCDPPanelView for rendering. Nil on macOS < 12.3.
-    @available(macOS 12.3, *)
-    var captureStream: ChromiumScreenCaptureStream? {
-        captureStreamStorage as? ChromiumScreenCaptureStream
-    }
-    /// Non-nil while capture mode is active and the CDP client is ready.
-    /// Exposed to the view so mouse / key events can route through it.
+    /// The screencast session pipes base64-JPEG frames from Chromium
+    /// into the panel view. Lives for the panel's lifetime.
+    private(set) var screencast: ChromiumScreencastSession?
+    /// Most recent decoded frame. The view pulls this on attach so late
+    /// subscribers get a frame immediately without waiting for the next
+    /// Chromium render.
+    private(set) var lastFrame: CGImage?
+    /// Called every time a new frame arrives so the view can render.
+    var onScreencastFrame: ((CGImage) -> Void)?
+
+    /// Non-nil once the CDP client is ready. Exposed to the view so
+    /// mouse / key events can route through it.
     private(set) var inputRouter: ChromiumCDPInputRouter?
 
     private static let debounceMs: Int = 16
@@ -221,74 +223,67 @@ final class BrowserCDPPanel: Panel, ObservableObject {
     /// Opt-in capture mode: switch from park (Chromium as its own NSWindow)
     /// to SCStream pixel mirroring + CDP-routed input. No-op on macOS
     /// earlier than 12.3 (SCStream requires Sonoma APIs).
+    /// Legacy API kept for the panel view's binding compatibility.
+    /// Headless-mode rendering is always on; this is effectively a no-op.
     func setCaptureMode(_ enabled: Bool) {
-        guard !isClosed, captureMode != enabled else { return }
-        if enabled {
-            if #available(macOS 12.3, *) {
-                guard let cdp = client, let pid = manager.pid else { return }
-                let stream = ChromiumScreenCaptureStream(pid: pid)
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    do {
-                        try await stream.start()
-                        self.captureStreamStorage = stream
-                        self.inputRouter = ChromiumCDPInputRouter(client: cdp)
-                        self.captureMode = true
-                        await self.stashChromiumOffScreen()
-                    } catch {
-                        #if DEBUG
-                        dlog("browserCDP: capture start failed: \(error)")
-                        #endif
-                    }
-                }
-            }
-        } else {
-            if #available(macOS 12.3, *) {
-                (captureStreamStorage as? ChromiumScreenCaptureStream)?.stop()
-            }
-            captureStreamStorage = nil
-            inputRouter = nil
-            captureMode = false
-            // Return Chromium to the panel's on-screen rect (park mode).
-            if let rect = lastRequestedRect {
-                pushBounds(rect)
-            }
-        }
+        _ = enabled
     }
 
-    /// Try to enter capture mode automatically if Screen Recording
-    /// permission is already granted. Called after the CDP client
-    /// connects. Silent no-op if permission hasn't been granted —
-    /// the user explicitly clicks "Capture" to trigger the prompt.
-    private func tryAutoEnableCapture() {
-        guard !captureMode, endpoint != nil else { return }
-        if #available(macOS 12.3, *) {
-            guard CGPreflightScreenCaptureAccess() else { return }
-            setCaptureMode(true)
+    /// Start the CDP screencast against the panel's first page session
+    /// and install the frame callback. Called once the CDP client has
+    /// connected.
+    private func startScreencastIfNeeded() {
+        guard let cdp = client, screencast == nil else { return }
+        let size = lastRequestedRect?.size ?? CGSize(width: 1280, height: 800)
+        let scale = Int(NSScreen.main?.backingScaleFactor ?? 2)
+        let maxW = max(Int(size.width) * scale, 800)
+        let maxH = max(Int(size.height) * scale, 600)
+        let session = ChromiumScreencastSession(client: cdp)
+        screencast = session
+        session.onFrame = { [weak self] image in
+            guard let self else { return }
+            self.lastFrame = image
+            self.onScreencastFrame?(image)
         }
-    }
-
-    /// Move Chromium's OS window far off-screen while capture is active.
-    /// Keeps the window alive (SCStream requires a rendered window even
-    /// if not on any display) but removes it from the user's view so
-    /// only the in-panel capture is visible.
-    private func stashChromiumOffScreen() async {
-        guard let cdp = client else { return }
-        let size = lastRequestedRect?.size ?? CGSize(width: 1024, height: 768)
-        do {
-            let windowId = try await resolveWindowId(with: cdp)
-            try await cdp.browserSetWindowBounds(
-                windowId: windowId,
-                bounds: .init(
-                    left: -30000,
-                    top: -30000,
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let (_, sid) = try await self.ensurePageSession(cdp: cdp)
+                self.inputRouter = ChromiumCDPInputRouter(client: cdp, sessionId: sid)
+                try await cdp.emulationSetDeviceMetricsOverride(
+                    sessionId: sid,
                     width: Int(size.width),
-                    height: Int(size.height)
+                    height: Int(size.height),
+                    deviceScaleFactor: Double(scale)
                 )
+                try await session.start(pageSessionId: sid, maxWidth: maxW, maxHeight: maxH)
+            } catch {
+                #if DEBUG
+                dlog("browserCDP: screencast start failed: \(error)")
+                #endif
+            }
+        }
+    }
+
+    /// Push a new viewport size into Chromium via Emulation.setDeviceMetricsOverride
+    /// + resize the screencast. Called from pushBounds after debounce.
+    private func applyViewportSize(_ size: CGSize) async {
+        guard let cdp = client else { return }
+        guard let sid = cachedPageSessionId else { return }
+        let scale = Double(NSScreen.main?.backingScaleFactor ?? 2)
+        let w = max(Int(size.width), 200)
+        let h = max(Int(size.height), 150)
+        do {
+            try await cdp.emulationSetDeviceMetricsOverride(
+                sessionId: sid,
+                width: w,
+                height: h,
+                deviceScaleFactor: scale
             )
+            try await screencast?.resize(maxWidth: w * Int(scale), maxHeight: h * Int(scale))
         } catch {
             #if DEBUG
-            dlog("browserCDP: stash off-screen failed: \(error)")
+            dlog("browserCDP: viewport resize failed: \(error)")
             #endif
         }
     }
@@ -317,11 +312,14 @@ final class BrowserCDPPanel: Panel, ObservableObject {
         pendingBoundsPush = nil
         axObserver?.stop()
         axObserver = nil
+        let existingScreencast = screencast
+        screencast = nil
         let existingClient = client
         client = nil
         manager.terminate()
-        if let existingClient {
-            Task<Void, Never> { await existingClient.close() }
+        Task<Void, Never> {
+            await existingScreencast?.stop()
+            await existingClient?.close()
         }
     }
 
@@ -332,28 +330,11 @@ final class BrowserCDPPanel: Panel, ObservableObject {
 
     // MARK: - View integration
 
-    /// Called by the view when its visibility changes (tab switch, window
-    /// hide). Minimize Chromium when going offscreen, restore on return.
+    /// Headless rendering does not need to minimize Chromium when the
+    /// tab is hidden — there is no on-screen window. Left as a no-op
+    /// so existing view bindings still compile.
     func setVisible(_ visible: Bool) {
-        guard !isClosed, let cdp = client else { return }
-        Task<Void, Never> { [weak self] in
-            guard let self else { return }
-            let state = visible ? "normal" : "minimized"
-            do {
-                let windowId = try await self.resolveWindowId(with: cdp)
-                _ = try await cdp.send(method: "Browser.setWindowBounds", params: [
-                    "windowId": windowId,
-                    "bounds": ["windowState": state],
-                ])
-                // On restore, immediately re-assert the last rect; minimize
-                // can shuffle the window off the cmux panel.
-                if visible, let rect = await self.readLastRect() {
-                    self.pushBounds(rect)
-                }
-            } catch {
-                // Transient; ignore.
-            }
-        }
+        _ = visible
     }
 
     private func readLastRect() async -> CGRect? { lastRequestedRect }
@@ -368,51 +349,29 @@ final class BrowserCDPPanel: Panel, ObservableObject {
         return windowId
     }
 
-    /// Called by the view when its on-screen rect changes. Top-origin screen
-    /// coordinates (CDP convention). The rect is remembered even when the
-    /// CDP client is not yet connected; it replays on connect.
-    ///
-    /// In capture mode we do NOT position Chromium at the panel's on-screen
-    /// rect — Chromium is stashed off-screen — but we DO resize it to
-    /// match the panel's dimensions so the captured pixels align with
-    /// the view 1:1.
+    /// Called by the view when its size changes. In headless mode we use
+    /// CDP `Emulation.setDeviceMetricsOverride` to make Chromium render
+    /// at the panel's exact dimensions so the screencast fills the view
+    /// 1:1. Debounced so a live drag doesn't spam CDP.
     func pushBounds(_ rect: CGRect) {
         guard !isClosed else { return }
         lastRequestedRect = rect
         guard client != nil else { return }
-        if captureMode {
-            // Match Chromium's window size to the panel (still off-screen)
-            // so capture pixels align with the panel 1:1. Debounce so a
-            // live resize doesn't spam setWindowBounds.
-            pendingBoundsPush?.cancel()
-            let block: @Sendable () -> Void = { [weak self] in
-                guard let self else { return }
-                MainActor.assumeIsolated {
-                    let _: Task<Void, Never> = Task { [weak self] in
-                        await self?.stashChromiumOffScreen()
-                    }
-                }
-            }
-            let work = DispatchWorkItem(block: block)
-            pendingBoundsPush = work
-            DispatchQueue.main.asyncAfter(
-                deadline: .now() + .milliseconds(Self.debounceMs),
-                execute: work
-            )
-            return
-        }
         pendingBoundsPush?.cancel()
         let block: @Sendable () -> Void = { [weak self] in
             guard let self else { return }
             MainActor.assumeIsolated {
                 let _: Task<Void, Never> = Task { [weak self] in
-                    await self?.sendBounds(rect)
+                    await self?.applyViewportSize(rect.size)
                 }
             }
         }
         let work = DispatchWorkItem(block: block)
         pendingBoundsPush = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Self.debounceMs), execute: work)
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + .milliseconds(Self.debounceMs),
+            execute: work
+        )
     }
 
     // MARK: - Private
@@ -443,8 +402,10 @@ final class BrowserCDPPanel: Panel, ObservableObject {
                         if let pending = self.lastRequestedRect {
                             self.pushBounds(pending)
                         }
-                        self.installAXObserverIfPossible()
-                        self.tryAutoEnableCapture()
+                        // Headless mode: no native window, no AX observer,
+                        // no Screen Recording permission dance. Just start
+                        // the CDP screencast directly.
+                        self.startScreencastIfNeeded()
                     } catch {
                         self.statusMessage = String(
                             format: String(
