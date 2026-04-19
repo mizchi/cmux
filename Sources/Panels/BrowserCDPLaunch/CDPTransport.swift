@@ -7,66 +7,99 @@ protocol CDPTransport: AnyObject {
     func start() async throws
     func stop()
     func send(_ data: Data) async throws
-    /// One AsyncStream covers the lifetime of this transport. Consumer
-    /// is responsible for cancelling iteration when stop() is called.
+    /// One AsyncStream covers the lifetime of this transport. Call exactly once
+    /// after start() (or at most once per transport lifetime).
     func makeIncoming() -> AsyncStream<Data>
 }
 
 final class CDPWebSocketTransport: CDPTransport {
     private let url: URL
+    private let lock = NSLock()
     private var task: URLSessionWebSocketTask?
-    private var continuation: AsyncStream<Data>.Continuation?
     private var session: URLSession?
+    private var stream: AsyncStream<Data>?
+    private var continuation: AsyncStream<Data>.Continuation?
+    private var incomingDelivered = false
 
     init(url: URL) {
         self.url = url
     }
 
     func start() async throws {
+        let (stream, continuation) = AsyncStream<Data>.makeStream()
         let config = URLSessionConfiguration.default
         let session = URLSession(configuration: config)
-        self.session = session
         let task = session.webSocketTask(with: url)
+
+        lock.lock()
+        self.stream = stream
+        self.continuation = continuation
+        self.session = session
         self.task = task
+        lock.unlock()
+
         task.resume()
         Task { [weak self] in await self?.readLoop() }
     }
 
     func stop() {
+        lock.lock()
+        let task = self.task
+        let session = self.session
+        let continuation = self.continuation
+        self.task = nil
+        self.session = nil
+        self.continuation = nil
+        // Keep `stream` so any consumer still iterating sees the finish.
+        lock.unlock()
+
         task?.cancel(with: .normalClosure, reason: nil)
-        task = nil
         continuation?.finish()
-        continuation = nil
         session?.invalidateAndCancel()
-        session = nil
     }
 
     func send(_ data: Data) async throws {
+        lock.lock()
+        let task = self.task
+        lock.unlock()
         guard let task else { throw CDPError.transportNotStarted }
         try await task.send(.data(data))
     }
 
     func makeIncoming() -> AsyncStream<Data> {
-        AsyncStream { continuation in
-            self.continuation = continuation
+        lock.lock()
+        defer { lock.unlock() }
+        precondition(!incomingDelivered, "CDPWebSocketTransport.makeIncoming called twice")
+        guard let stream else {
+            preconditionFailure("CDPWebSocketTransport.makeIncoming called before start()")
         }
+        incomingDelivered = true
+        return stream
     }
 
     private func readLoop() async {
-        while let task {
+        while true {
+            lock.lock()
+            let task = self.task
+            let continuation = self.continuation
+            lock.unlock()
+            guard let task, let continuation else { return }
             do {
                 let message = try await task.receive()
                 switch message {
                 case .data(let d):
-                    continuation?.yield(d)
+                    continuation.yield(d)
                 case .string(let s):
-                    continuation?.yield(Data(s.utf8))
+                    continuation.yield(Data(s.utf8))
                 @unknown default:
                     continue
                 }
             } catch {
-                continuation?.finish()
-                continuation = nil
+                lock.lock()
+                let cont = self.continuation
+                self.continuation = nil
+                lock.unlock()
+                cont?.finish()
                 return
             }
         }
