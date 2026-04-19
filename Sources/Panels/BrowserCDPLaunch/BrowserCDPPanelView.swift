@@ -36,6 +36,13 @@ struct BrowserCDPPanelView: View {
                     }
                     .controlSize(.small)
                 }
+                if panel.isChromiumExited {
+                    Button("Relaunch Chromium") {
+                        panel.relaunch()
+                    }
+                    .controlSize(.small)
+                    .keyboardShortcut(.defaultAction)
+                }
             }
             .padding()
         }

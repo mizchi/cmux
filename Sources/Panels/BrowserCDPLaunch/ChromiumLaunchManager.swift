@@ -29,6 +29,7 @@ final class ChromiumLaunchManager {
 
     func launch(initialURL: URL?, timeout: TimeInterval, completion: @escaping (Result<ChromiumDevToolsEndpoint, Error>) -> Void) {
         precondition(process == nil, "ChromiumLaunchManager.launch called twice; call terminate() first")
+        terminationReported = false
 
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cmux-chromium-\(UUID().uuidString)")

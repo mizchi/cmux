@@ -31,6 +31,9 @@ final class BrowserCDPPanel: Panel, ObservableObject {
     /// Remembered even while the CDP client is still connecting, so we can
     /// replay the first known rect as soon as the client comes up.
     private var lastRequestedRect: CGRect?
+    /// Tracks whether Chromium has exited externally; surfaces as a Relaunch
+    /// button in the view.
+    @Published private(set) var isChromiumExited: Bool = false
     private static let debounceMs: Int = 16
     /// Cooldown between user-drag detection and next snap-back push, so
     /// we don't fight a live drag (Chromium emits AX events continuously
@@ -71,10 +74,23 @@ final class BrowserCDPPanel: Panel, ObservableObject {
         let existingClient = client
         client = nil
         endpoint = nil
-        statusMessage = "Chromium exited."
+        isChromiumExited = true
+        statusMessage = "Chromium exited. Click Relaunch to start a new session."
         if let existingClient {
             Task<Void, Never> { await existingClient.close() }
         }
+    }
+
+    /// Spawn a fresh Chromium subprocess, reusing this panel's CDP/view
+    /// state. Used by the Relaunch button after `handleChromiumExited`.
+    func relaunch() {
+        guard !isClosed, isChromiumExited else { return }
+        isChromiumExited = false
+        manager.terminate() // no-op if already torn down; clears userDataDir state
+        manager.onProcessExit = { [weak self] in
+            self?.handleChromiumExited()
+        }
+        launch()
     }
 
     // MARK: - Panel protocol
