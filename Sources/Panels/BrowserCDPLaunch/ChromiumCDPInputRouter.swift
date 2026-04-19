@@ -79,7 +79,7 @@ final class ChromiumCDPInputRouter {
     // MARK: - CDP translation
 
     /// CDP modifier bit mask: Alt=1, Ctrl=2, Meta=4, Shift=8.
-    static func modifiers(from flags: NSEvent.ModifierFlags) -> Int {
+    nonisolated static func modifiers(from flags: NSEvent.ModifierFlags) -> Int {
         var m = 0
         if flags.contains(.option) { m |= 1 }
         if flags.contains(.control) { m |= 2 }
@@ -88,7 +88,7 @@ final class ChromiumCDPInputRouter {
         return m
     }
 
-    static func cdpButton(for event: NSEvent) -> String {
+    nonisolated static func cdpButton(for event: NSEvent) -> String {
         switch event.type {
         case .leftMouseDown, .leftMouseUp, .leftMouseDragged:
             return "left"
@@ -103,7 +103,7 @@ final class ChromiumCDPInputRouter {
 
     /// Map macOS virtual key code to CDP `key` name where known.
     /// Falls back to the event's `characters`, and finally "Unidentified".
-    static func cdpKeyName(for event: NSEvent) -> String {
+    nonisolated static func cdpKeyName(for event: NSEvent) -> String {
         if let named = keyNameTable[event.keyCode] {
             return named
         }
@@ -114,7 +114,7 @@ final class ChromiumCDPInputRouter {
     }
 
     /// Map macOS virtual key code to CDP `code` (physical key).
-    static func cdpCode(for event: NSEvent) -> String {
+    nonisolated static func cdpCode(for event: NSEvent) -> String {
         codeTable[event.keyCode] ?? ""
     }
 
