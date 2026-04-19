@@ -276,14 +276,14 @@ class TerminalController {
         requested && socketCommandAllowsInAppFocusMutations()
     }
 
-    private func v2MaybeFocusWindow(for tabManager: TabManager) {
+    func v2MaybeFocusWindow(for tabManager: TabManager) {
         guard socketCommandAllowsInAppFocusMutations(),
               let windowId = v2ResolveWindowId(tabManager: tabManager) else { return }
         _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
         setActiveTabManager(tabManager)
     }
 
-    private func v2MaybeSelectWorkspace(_ tabManager: TabManager, workspace: Workspace) {
+    func v2MaybeSelectWorkspace(_ tabManager: TabManager, workspace: Workspace) {
         guard socketCommandAllowsInAppFocusMutations() else { return }
         if tabManager.selectedTabId != workspace.id {
             tabManager.selectWorkspace(workspace)
@@ -2371,6 +2371,18 @@ class TerminalController {
         case "browser.input_touch":
             return v2Result(id: id, self.v2BrowserInputTouch(params: params))
 
+        // Browser CDP (Phase 3): spawn / inspect / close Chromium panels
+        // whose bounds are driven by cmux, and whose CDP URL Playwright
+        // can connectOverCDP to.
+        case "browser.cdp.launch":
+            return v2Result(id: id, self.v2BrowserCDPLaunch(params: params))
+        case "browser.cdp.url":
+            return v2Result(id: id, self.v2BrowserCDPURL(params: params))
+        case "browser.cdp.list":
+            return v2Result(id: id, self.v2BrowserCDPList(params: params))
+        case "browser.cdp.close":
+            return v2Result(id: id, self.v2BrowserCDPClose(params: params))
+
         // Markdown
         case "markdown.open":
             return v2Result(id: id, self.v2MarkdownOpen(params: params))
@@ -2947,7 +2959,7 @@ class TerminalController {
         return NSNull()
     }
 
-    private func v2MainSync<T>(_ body: () -> T) -> T {
+    func v2MainSync<T>(_ body: () -> T) -> T {
         if Thread.isMainThread {
             return body()
         }
@@ -2974,7 +2986,7 @@ class TerminalController {
         ])
     }
 
-    private enum V2CallResult {
+    enum V2CallResult {
         case ok(Any)
         case err(code: String, message: String, data: Any?)
     }
@@ -3116,7 +3128,7 @@ class TerminalController {
         params[key] as? String
     }
 
-    private func v2UUID(_ params: [String: Any], _ key: String) -> UUID? {
+    func v2UUID(_ params: [String: Any], _ key: String) -> UUID? {
         guard let s = v2String(params, key) else { return nil }
         if let uuid = UUID(uuidString: s) {
             return uuid
@@ -3210,7 +3222,7 @@ class TerminalController {
 
     // MARK: - V2 Context Resolution
 
-    private func v2ResolveTabManager(params: [String: Any]) -> TabManager? {
+    func v2ResolveTabManager(params: [String: Any]) -> TabManager? {
         // Prefer explicit window_id routing. Fall back to global lookup by workspace_id/surface_id/tab_id,
         // and finally to the active window's TabManager.
         if let windowId = v2UUID(params, "window_id") {
@@ -4788,7 +4800,7 @@ class TerminalController {
 
     // MARK: - V2 Surface Methods
 
-    private func v2ResolveWorkspace(params: [String: Any], tabManager: TabManager) -> Workspace? {
+    func v2ResolveWorkspace(params: [String: Any], tabManager: TabManager) -> Workspace? {
         if let wsId = v2UUID(params, "workspace_id") {
             return tabManager.tabs.first(where: { $0.id == wsId })
         }
