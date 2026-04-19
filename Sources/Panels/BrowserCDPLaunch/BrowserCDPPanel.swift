@@ -24,6 +24,7 @@ final class BrowserCDPPanel: Panel, ObservableObject {
 
     private let manager: ChromiumLaunchManager
     private var client: ChromiumCDPClient?
+    private var axObserver: ChromiumAXObserver?
     private var cachedWindowId: Int?
     private var pendingBoundsPush: DispatchWorkItem?
     private var isClosed = false
@@ -31,6 +32,11 @@ final class BrowserCDPPanel: Panel, ObservableObject {
     /// replay the first known rect as soon as the client comes up.
     private var lastRequestedRect: CGRect?
     private static let debounceMs: Int = 16
+    /// Cooldown between user-drag detection and next snap-back push, so
+    /// we don't fight a live drag (Chromium emits AX events continuously
+    /// during the drag). 180ms is long enough to wait for the user to let
+    /// go of the title bar.
+    private static let axReassertDelayMs: Int = 180
 
     init() {
         self.id = UUID()
@@ -58,6 +64,8 @@ final class BrowserCDPPanel: Panel, ObservableObject {
         isClosed = true
         pendingBoundsPush?.cancel()
         pendingBoundsPush = nil
+        axObserver?.stop()
+        axObserver = nil
         let existingClient = client
         client = nil
         manager.terminate()
@@ -113,6 +121,7 @@ final class BrowserCDPPanel: Panel, ObservableObject {
                         if let pending = self.lastRequestedRect {
                             self.pushBounds(pending)
                         }
+                        self.installAXObserverIfPossible()
                     } catch {
                         self.statusMessage = "CDP connect failed: \(error)"
                     }
@@ -121,6 +130,41 @@ final class BrowserCDPPanel: Panel, ObservableObject {
                 }
             }
         }
+    }
+
+    private func installAXObserverIfPossible() {
+        guard axObserver == nil, let pid = manager.pid else { return }
+        let observer = ChromiumAXObserver(pid: pid)
+        observer.onWindowMovedOrResized = { [weak self] in
+            self?.handleAXWindowEvent()
+        }
+        guard observer.start() else {
+            // Accessibility permission not granted. Reverse sync stays
+            // disabled; the forward path (panel → Chromium) still works.
+            return
+        }
+        self.axObserver = observer
+    }
+
+    /// User dragged or resized the Chromium window. Wait out the drag
+    /// (handler coalesces), then re-assert the panel rect.
+    private func handleAXWindowEvent() {
+        guard !isClosed, let rect = lastRequestedRect else { return }
+        pendingBoundsPush?.cancel()
+        let block: @Sendable () -> Void = { [weak self] in
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                let _: Task<Void, Never> = Task { [weak self] in
+                    await self?.sendBounds(rect)
+                }
+            }
+        }
+        let work = DispatchWorkItem(block: block)
+        pendingBoundsPush = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + .milliseconds(Self.axReassertDelayMs),
+            execute: work
+        )
     }
 
     private func sendBounds(_ rect: CGRect) async {

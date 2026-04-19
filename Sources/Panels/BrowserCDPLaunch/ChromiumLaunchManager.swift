@@ -6,6 +6,13 @@ final class ChromiumLaunchManager {
     private var watcher: ChromiumDevToolsPortWatcher?
     private(set) var userDataDir: URL?
 
+    /// PID of the launched Chromium process, or nil before launch() has
+    /// returned success / after terminate().
+    var pid: pid_t? {
+        guard let proc = process, proc.isRunning else { return nil }
+        return proc.processIdentifier
+    }
+
     #if DEBUG
     var userDataDirForTesting: URL? { userDataDir }
     #endif
