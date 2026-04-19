@@ -4,8 +4,10 @@ import Bonsplit
 
 enum BrowserCDPDebugLauncher {
     private static var manager: ChromiumLaunchManager?
+    private static var observerInstalled = false
 
     static func launchAndReportURL() async {
+        installTerminateObserverIfNeeded()
         let locator = ChromiumBinaryLocator()
         let binary: ChromiumBinary
         do {
@@ -36,6 +38,19 @@ enum BrowserCDPDebugLauncher {
                 Task { await presentAlert(title: "Chromium launch failed",
                                           body: "\(error)") }
             }
+        }
+    }
+
+    private static func installTerminateObserverIfNeeded() {
+        guard !observerInstalled else { return }
+        observerInstalled = true
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            manager?.terminate()
+            manager = nil
         }
     }
 
