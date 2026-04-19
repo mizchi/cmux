@@ -1,7 +1,4 @@
 import Foundation
-#if DEBUG
-import Bonsplit
-#endif
 
 /// Thin JSON-RPC 2.0 client over a CDPTransport. Actor-isolated so
 /// multiple tasks can await send(...) concurrently without stepping on
@@ -64,14 +61,8 @@ actor ChromiumCDPClient {
             inflight[id] = cont
             Task {
                 do {
-                    #if DEBUG
-                    dlog("CDP>> id=\(id) method=\(method) sid=\(sessionId ?? "-")")
-                    #endif
                     try await transport.send(data)
                 } catch {
-                    #if DEBUG
-                    dlog("CDP>> send error id=\(id): \(error)")
-                    #endif
                     if let c = inflight.removeValue(forKey: id) {
                         c.resume(throwing: error)
                     }
@@ -81,11 +72,6 @@ actor ChromiumCDPClient {
     }
 
     private func handleIncoming(_ data: Data) {
-        #if DEBUG
-        // Swift-log-sized preview so we can confirm frames flow.
-        let preview = String(data: data.prefix(200), encoding: .utf8) ?? "<binary>"
-        dlog("CDP<< \(preview)")
-        #endif
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return
         }

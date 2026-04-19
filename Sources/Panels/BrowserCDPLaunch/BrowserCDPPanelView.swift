@@ -1,59 +1,49 @@
 import SwiftUI
 import AppKit
 
-/// SwiftUI view that hosts a BrowserCDPPanel. Shows a placeholder card
-/// (status + CDP URL copy button) and installs a frame observer on the
-/// underlying NSView. Every frame change computes the on-screen rect in
-/// CDP's top-origin coordinates and asks the panel to push it via CDP.
+/// Panel UI for BrowserCDPPanel. Top: address bar + back/forward/reload.
+/// Body: a `ChromiumScreencastView` that renders headless Chromium's
+/// screencast frames and forwards NSEvents through `panel.inputRouter`.
 struct BrowserCDPPanelView: View {
     @ObservedObject var panel: BrowserCDPPanel
     let isFocused: Bool
     let isVisibleInUI: Bool
-    @State private var captureContentSize: CGSize = .zero
     @State private var addressFieldText: String = ""
 
     var body: some View {
         VStack(spacing: 0) {
             addressBar
             Divider()
-            content
-        }
-        .overlay(
-            CDPPanelFrameObserver(
-                onScreenRectChange: { [weak panel] rect in
-                    panel?.pushBounds(rect)
-                },
-                onWindowVisibilityChange: { [weak panel] windowVisible in
-                    panel?.setVisible(windowVisible)
+            ChromiumScreencastView(
+                inputRouter: panel.inputRouter,
+                attachView: { [weak panel] nsView in
+                    panel?.screencast?.onFrame = { [weak nsView] cg in
+                        nsView?.setFrame(cg)
+                    }
                 }
             )
+        }
+        .overlay(
+            CDPPanelFrameObserver(onScreenRectChange: { [weak panel] rect in
+                panel?.pushBounds(rect)
+            })
             .allowsHitTesting(false)
         )
-        .onChange(of: isVisibleInUI) { newValue in
-            panel.setVisible(newValue)
-        }
-        .onAppear { panel.setVisible(isVisibleInUI) }
     }
 
     @ViewBuilder private var addressBar: some View {
         HStack(spacing: 6) {
-            Button(action: { panel.goBack() }) {
-                Image(systemName: "chevron.backward")
-            }
-            .buttonStyle(.borderless)
-            .disabled(panel.endpoint == nil)
+            Button(action: { panel.goBack() })    { Image(systemName: "chevron.backward") }
+                .buttonStyle(.borderless)
+                .disabled(panel.endpoint == nil)
 
-            Button(action: { panel.goForward() }) {
-                Image(systemName: "chevron.forward")
-            }
-            .buttonStyle(.borderless)
-            .disabled(panel.endpoint == nil)
+            Button(action: { panel.goForward() }) { Image(systemName: "chevron.forward") }
+                .buttonStyle(.borderless)
+                .disabled(panel.endpoint == nil)
 
-            Button(action: { panel.reload() }) {
-                Image(systemName: "arrow.clockwise")
-            }
-            .buttonStyle(.borderless)
-            .disabled(panel.endpoint == nil)
+            Button(action: { panel.reload() })    { Image(systemName: "arrow.clockwise") }
+                .buttonStyle(.borderless)
+                .disabled(panel.endpoint == nil)
 
             TextField("example.com / https://… / search…", text: $addressFieldText)
                 .textFieldStyle(.roundedBorder)
@@ -63,113 +53,47 @@ struct BrowserCDPPanelView: View {
                     panel.navigate(s)
                 }
 
-            if #available(macOS 12.3, *), panel.endpoint != nil {
-                Button(panel.captureMode
-                       ? String(localized: "browserCDP.panel.disableCapture",
-                                defaultValue: "Park")
-                       : String(localized: "browserCDP.panel.enableCapture",
-                                defaultValue: "Capture")) {
-                    panel.setCaptureMode(!panel.captureMode)
+            if panel.isChromiumExited {
+                Button(String(
+                    localized: "browserCDP.panel.relaunch",
+                    defaultValue: "Relaunch"
+                )) {
+                    panel.relaunch()
                 }
                 .controlSize(.small)
+                .keyboardShortcut(.defaultAction)
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .onChange(of: panel.currentURL) { newValue in
-            // Keep the field in sync with programmatic navigation.
             if addressFieldText != newValue { addressFieldText = newValue }
         }
         .onAppear {
             if addressFieldText.isEmpty { addressFieldText = panel.currentURL }
         }
     }
-
-    @ViewBuilder private var content: some View {
-        ZStack {
-            ChromiumScreencastView(
-                inputRouter: panel.inputRouter,
-                attachView: { [weak panel] nsView in
-                    guard let panel else { return }
-                    // Push any already-received frame so late mounts see
-                    // something instead of black.
-                    if let last = panel.lastFrame { nsView.setFrame(last) }
-                    panel.onScreencastFrame = { [weak nsView] cg in
-                        nsView?.setFrame(cg)
-                    }
-                }
-            )
-            if panel.lastFrame == nil {
-                parkPlaceholder
-                    .allowsHitTesting(false)
-            }
-        }
-    }
-
-    @ViewBuilder private var parkPlaceholder: some View {
-        Rectangle()
-            .fill(LinearGradient(
-                colors: [Color(red: 0.07, green: 0.07, blue: 0.09), Color(red: 0.10, green: 0.10, blue: 0.14)],
-                startPoint: .top,
-                endPoint: .bottom
-            ))
-            .overlay(
-                VStack(spacing: 12) {
-                    Text(String(localized: "browserCDP.panel.bodyText",
-                                defaultValue: "Chromium is rendered in its own OS window."))
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Text(panel.statusMessage)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 20)
-                    if let endpoint = panel.endpoint {
-                        Button(String(localized: "browserCDP.panel.copyURL",
-                                      defaultValue: "Copy CDP URL")) {
-                            let pb = NSPasteboard.general
-                            pb.clearContents()
-                            pb.setString(endpoint.webSocketURL.absoluteString, forType: .string)
-                        }
-                        .controlSize(.small)
-                    }
-                    if panel.isChromiumExited {
-                        Button(String(localized: "browserCDP.panel.relaunch",
-                                      defaultValue: "Relaunch Chromium")) {
-                            panel.relaunch()
-                        }
-                        .controlSize(.small)
-                        .keyboardShortcut(.defaultAction)
-                    }
-                    // The Capture/Park toggle lives in the address bar above
-                    // so it is always reachable regardless of mode.
-                }
-                .padding()
-            )
-    }
 }
 
-/// Uses NSViewRepresentable to attach a bounds observer to the SwiftUI
-/// view's backing NSView. Emits the on-screen rect in CDP top-origin coords.
+/// NSView observer that reports the panel view's on-screen rect. The
+/// panel uses it to drive `Emulation.setDeviceMetricsOverride` so the
+/// rendered viewport always matches the container size.
 private struct CDPPanelFrameObserver: NSViewRepresentable {
     let onScreenRectChange: (CGRect) -> Void
-    let onWindowVisibilityChange: (Bool) -> Void
 
     func makeNSView(context: Context) -> ObserverView {
-        let view = ObserverView()
-        view.onScreenRectChange = onScreenRectChange
-        view.onWindowVisibilityChange = onWindowVisibilityChange
-        return view
+        let v = ObserverView()
+        v.onScreenRectChange = onScreenRectChange
+        return v
     }
 
     func updateNSView(_ nsView: ObserverView, context: Context) {
         nsView.onScreenRectChange = onScreenRectChange
-        nsView.onWindowVisibilityChange = onWindowVisibilityChange
     }
 
     final class ObserverView: NSView {
         var onScreenRectChange: ((CGRect) -> Void)?
-        var onWindowVisibilityChange: ((Bool) -> Void)?
+        private var windowObservers: [NSObjectProtocol] = []
 
         override init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
@@ -198,90 +122,31 @@ private struct CDPPanelFrameObserver: NSViewRepresentable {
             publishCurrentRect()
         }
 
-        private var windowObservers: [NSObjectProtocol] = []
-        private var workspaceObservers: [NSObjectProtocol] = []
+        deinit {
+            let center = NotificationCenter.default
+            for token in windowObservers { center.removeObserver(token) }
+        }
 
         private func installWindowObservers() {
             let center = NotificationCenter.default
             for token in windowObservers { center.removeObserver(token) }
             windowObservers.removeAll()
-            for token in workspaceObservers {
-                NSWorkspace.shared.notificationCenter.removeObserver(token)
-            }
-            workspaceObservers.removeAll()
-            guard let window else {
-                // View was removed from its window — treat as not visible.
-                onWindowVisibilityChange?(false)
-                return
-            }
-            for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification] {
+            guard let window else { return }
+            for name in [NSWindow.didMoveNotification,
+                         NSWindow.didResizeNotification,
+                         NSWindow.didEndLiveResizeNotification] {
                 let token = center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
                     self?.publishCurrentRect()
                 }
                 windowObservers.append(token)
             }
-            let miniToken = center.addObserver(
-                forName: NSWindow.didMiniaturizeNotification,
-                object: window,
-                queue: .main
-            ) { [weak self] _ in
-                self?.onWindowVisibilityChange?(false)
-            }
-            windowObservers.append(miniToken)
-            let demini = center.addObserver(
-                forName: NSWindow.didDeminiaturizeNotification,
-                object: window,
-                queue: .main
-            ) { [weak self] _ in
-                self?.onWindowVisibilityChange?(true)
-                self?.publishCurrentRect()
-            }
-            windowObservers.append(demini)
-            // Active-space changes (⌃←/→, Mission Control). NSWorkspace
-            // fires this on every Space transition; we inspect whether our
-            // window is on the new active Space and route visibility.
-            let spaceToken = NSWorkspace.shared.notificationCenter.addObserver(
-                forName: NSWorkspace.activeSpaceDidChangeNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                guard let self, let window = self.window else { return }
-                let visible = window.isOnActiveSpace && !window.isMiniaturized && window.isVisible
-                self.onWindowVisibilityChange?(visible)
-                if visible { self.publishCurrentRect() }
-            }
-            workspaceObservers.append(spaceToken)
-            // Propagate current visibility on install (miniaturized state is
-            // sticky across window-assignment transitions).
-            onWindowVisibilityChange?(
-                !window.isMiniaturized && window.isVisible && window.isOnActiveSpace
-            )
         }
 
         private func publishCurrentRect() {
-            guard let window, let screen = window.screen ?? NSScreen.screens.first else { return }
-            let rectInWindow = convert(bounds, to: nil)
-            let rectOnScreen = window.convertToScreen(rectInWindow)
-            // Flip to CDP top-origin coords. Use the primary screen height
-            // like CDP expects.
-            let primary = NSScreen.screens.first ?? screen
-            let primaryHeight = primary.frame.size.height
-            let topY = primaryHeight - (rectOnScreen.origin.y + rectOnScreen.size.height)
-            let cdpRect = CGRect(
-                x: rectOnScreen.origin.x,
-                y: topY,
-                width: rectOnScreen.size.width,
-                height: rectOnScreen.size.height
-            )
-            onScreenRectChange?(cdpRect)
-        }
-
-        deinit {
-            let center = NotificationCenter.default
-            for token in windowObservers { center.removeObserver(token) }
-            for token in workspaceObservers {
-                NSWorkspace.shared.notificationCenter.removeObserver(token)
-            }
+            // The panel only cares about *size* for Emulation.setDeviceMetricsOverride;
+            // position is irrelevant in headless mode. We still publish a full rect
+            // so the call site can switch to positional data without another change.
+            onScreenRectChange?(bounds)
         }
     }
 }

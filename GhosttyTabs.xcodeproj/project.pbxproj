@@ -51,16 +51,12 @@
 		BC11000005 /* ChromiumBinaryLocatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000005 /* ChromiumBinaryLocatorTests.swift */; };
 		BC11000006 /* ChromiumDevToolsPortWatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000006 /* ChromiumDevToolsPortWatcherTests.swift */; };
 		BC11000007 /* ChromiumLaunchManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000007 /* ChromiumLaunchManagerTests.swift */; };
-		BC11000008 /* BrowserCDPDebugLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000008 /* BrowserCDPDebugLauncher.swift */; };
 		BC11000009 /* CDPTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000009 /* CDPTransport.swift */; };
 		BC1100000A /* ChromiumCDPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC2200000A /* ChromiumCDPClient.swift */; };
 		BC1100000B /* ChromiumCDPClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC2200000B /* ChromiumCDPClientTests.swift */; };
 		BC1100000C /* BrowserCDPPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC2200000C /* BrowserCDPPanel.swift */; };
 		BC1100000D /* BrowserCDPPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC2200000D /* BrowserCDPPanelView.swift */; };
-		BC1100000E /* ChromiumAXObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC2200000E /* ChromiumAXObserver.swift */; };
 		BC1100000F /* BrowserCDPSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC2200000F /* BrowserCDPSocketCommands.swift */; };
-		BC11000010 /* ChromiumScreenCaptureStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000010 /* ChromiumScreenCaptureStream.swift */; };
-		BC11000011 /* ChromiumCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000011 /* ChromiumCaptureView.swift */; };
 		BC11000012 /* ChromiumCDPInputRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000012 /* ChromiumCDPInputRouter.swift */; };
 		BC11000013 /* ChromiumCDPInputRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000013 /* ChromiumCDPInputRouterTests.swift */; };
 		BC11000014 /* ChromiumScreencastSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000014 /* ChromiumScreencastSession.swift */; };
@@ -285,16 +281,12 @@
 		BC22000005 /* ChromiumBinaryLocatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromiumBinaryLocatorTests.swift; sourceTree = "<group>"; };
 		BC22000006 /* ChromiumDevToolsPortWatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromiumDevToolsPortWatcherTests.swift; sourceTree = "<group>"; };
 		BC22000007 /* ChromiumLaunchManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromiumLaunchManagerTests.swift; sourceTree = "<group>"; };
-		BC22000008 /* BrowserCDPDebugLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/BrowserCDPDebugLauncher.swift; sourceTree = "<group>"; };
 		BC22000009 /* CDPTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/CDPTransport.swift; sourceTree = "<group>"; };
 		BC2200000A /* ChromiumCDPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/ChromiumCDPClient.swift; sourceTree = "<group>"; };
 		BC2200000B /* ChromiumCDPClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromiumCDPClientTests.swift; sourceTree = "<group>"; };
 		BC2200000C /* BrowserCDPPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/BrowserCDPPanel.swift; sourceTree = "<group>"; };
 		BC2200000D /* BrowserCDPPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/BrowserCDPPanelView.swift; sourceTree = "<group>"; };
-		BC2200000E /* ChromiumAXObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/ChromiumAXObserver.swift; sourceTree = "<group>"; };
 		BC2200000F /* BrowserCDPSocketCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/BrowserCDPSocketCommands.swift; sourceTree = "<group>"; };
-		BC22000010 /* ChromiumScreenCaptureStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/ChromiumScreenCaptureStream.swift; sourceTree = "<group>"; };
-		BC22000011 /* ChromiumCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/ChromiumCaptureView.swift; sourceTree = "<group>"; };
 		BC22000012 /* ChromiumCDPInputRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/ChromiumCDPInputRouter.swift; sourceTree = "<group>"; };
 		BC22000013 /* ChromiumCDPInputRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromiumCDPInputRouterTests.swift; sourceTree = "<group>"; };
 		BC22000014 /* ChromiumScreencastSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/ChromiumScreencastSession.swift; sourceTree = "<group>"; };
@@ -562,15 +554,11 @@
 				BC22000002 /* ChromiumBinaryLocator.swift */,
 				BC22000003 /* ChromiumDevToolsPortWatcher.swift */,
 				BC22000004 /* ChromiumLaunchManager.swift */,
-				BC22000008 /* BrowserCDPDebugLauncher.swift */,
 				BC22000009 /* CDPTransport.swift */,
 				BC2200000A /* ChromiumCDPClient.swift */,
 				BC2200000C /* BrowserCDPPanel.swift */,
 				BC2200000D /* BrowserCDPPanelView.swift */,
-				BC2200000E /* ChromiumAXObserver.swift */,
 				BC2200000F /* BrowserCDPSocketCommands.swift */,
-				BC22000010 /* ChromiumScreenCaptureStream.swift */,
-				BC22000011 /* ChromiumCaptureView.swift */,
 				BC22000012 /* ChromiumCDPInputRouter.swift */,
 				BC22000014 /* ChromiumScreencastSession.swift */,
 				BC22000015 /* ChromiumScreencastView.swift */,
@@ -915,15 +903,11 @@
 				BC11000002 /* ChromiumBinaryLocator.swift in Sources */,
 				BC11000003 /* ChromiumDevToolsPortWatcher.swift in Sources */,
 				BC11000004 /* ChromiumLaunchManager.swift in Sources */,
-				BC11000008 /* BrowserCDPDebugLauncher.swift in Sources */,
 				BC11000009 /* CDPTransport.swift in Sources */,
 				BC1100000A /* ChromiumCDPClient.swift in Sources */,
 				BC1100000C /* BrowserCDPPanel.swift in Sources */,
 				BC1100000D /* BrowserCDPPanelView.swift in Sources */,
-				BC1100000E /* ChromiumAXObserver.swift in Sources */,
 				BC1100000F /* BrowserCDPSocketCommands.swift in Sources */,
-				BC11000010 /* ChromiumScreenCaptureStream.swift in Sources */,
-				BC11000011 /* ChromiumCaptureView.swift in Sources */,
 				BC11000012 /* ChromiumCDPInputRouter.swift in Sources */,
 				BC11000014 /* ChromiumScreencastSession.swift in Sources */,
 				BC11000015 /* ChromiumScreencastView.swift in Sources */,

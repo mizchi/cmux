@@ -502,15 +502,6 @@ struct cmuxApp: App {
                     Button("Debug Window Controls…") {
                         DebugWindowControlsWindowController.shared.show()
                     }
-                    Button("Launch Chromium (CDP)…") {
-                        Task.detached { await BrowserCDPDebugLauncher.launchAndReportURL() }
-                    }
-                    Button("Move Chromium to cmux Window") {
-                        Task.detached { await BrowserCDPDebugLauncher.moveChromiumToCmuxMainWindow() }
-                    }
-                    Button("Toggle Chromium Auto-Follow") {
-                        BrowserCDPDebugLauncher.toggleAutoFollow()
-                    }
                     Button("New Chromium Panel") {
                         _ = activeTabManager.newBrowserCDPInFocusedPane()
                     }

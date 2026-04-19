@@ -5,13 +5,12 @@ import AppKit
 import Bonsplit
 #endif
 
-/// Panel that hosts a CDP-driven Chromium window. Phase 2 MVP: each panel
-/// owns one Chromium subprocess launched with --remote-debugging-port, and
-/// drives its screen rect via CDP Browser.setWindowBounds whenever the panel
-/// view's on-screen frame changes.
-///
-/// Chromium remains its own NSWindow in its own process — cmux does not
-/// embed pixels. The panel reserves a rect and asks Chromium to match it.
+/// Panel that hosts a headless Chromium process driven entirely through
+/// CDP. Rendering uses `Page.startScreencast` (no native Chromium
+/// window, no Screen Recording permission); input uses
+/// `Input.dispatchMouseEvent` / `dispatchKeyEvent` through
+/// `ChromiumCDPInputRouter`. Viewport size tracks the panel's NSView
+/// via `Emulation.setDeviceMetricsOverride`.
 @MainActor
 final class BrowserCDPPanel: Panel, ObservableObject {
     let id: UUID
@@ -24,60 +23,36 @@ final class BrowserCDPPanel: Panel, ObservableObject {
     var displayIcon: String? { "globe" }
     @Published private(set) var focusFlashToken: Int = 0
 
-    /// Current CDP endpoint once the subprocess is up. Nil while launching or on failure.
+    /// CDP endpoint once the subprocess is up. Nil while launching / exited.
     @Published private(set) var endpoint: ChromiumDevToolsEndpoint?
     @Published private(set) var statusMessage: String = String(
         localized: "browserCDP.panel.status.launching",
         defaultValue: "Launching Chromium…"
     )
-
-    /// The current navigation URL, kept in sync when the user issues
-    /// `navigate(_:)`. Serves as the initial text for the address bar
-    /// in the panel view.
+    /// Mirrors the most recent `navigate(_:)` target so the panel's
+    /// address bar stays in sync with programmatic navigation.
     @Published var currentURL: String = "about:blank"
+    /// Surfaces a "Relaunch" action in the view when Chromium exits.
+    @Published private(set) var isChromiumExited: Bool = false
 
     private let manager: ChromiumLaunchManager
     private var client: ChromiumCDPClient?
-    private var axObserver: ChromiumAXObserver?
-    private var cachedWindowId: Int?
-    private var cachedPageTargetId: String?
-    private var cachedPageSessionId: String?
-    private var pendingBoundsPush: DispatchWorkItem?
+    private var pageTargetId: String?
+    private var pageSessionId: String?
+    private var pendingViewportPush: DispatchWorkItem?
     private var isClosed = false
-    /// Remembered even while the CDP client is still connecting, so we can
-    /// replay the first known rect as soon as the client comes up.
-    private var lastRequestedRect: CGRect?
-    /// Tracks whether Chromium has exited externally; surfaces as a Relaunch
-    /// button in the view.
-    @Published private(set) var isChromiumExited: Bool = false
+    /// Remembered even while the CDP client is still connecting, so the
+    /// first render already matches the panel's on-screen size.
+    private var lastViewportSize: CGSize?
 
-    /// Phase 3b captured Chromium via SCStream against a visible window.
-    /// Phase 3c switched to headless Chromium + CDP Page.startScreencast,
-    /// so there is no "mode" anymore — rendering is always via screencast.
-    /// Kept for binary compat with the old view bindings; always true
-    /// once the CDP client has connected.
-    @Published private(set) var captureMode: Bool = true
-
-    /// The screencast session pipes base64-JPEG frames from Chromium
-    /// into the panel view. Lives for the panel's lifetime.
+    /// Active screencast session once CDP is up. Exposed so the view's
+    /// subscriber can attach to its `onFrame` callback directly.
     private(set) var screencast: ChromiumScreencastSession?
-    /// Most recent decoded frame. The view pulls this on attach so late
-    /// subscribers get a frame immediately without waiting for the next
-    /// Chromium render.
-    private(set) var lastFrame: CGImage?
-    /// Called every time a new frame arrives so the view can render.
-    var onScreencastFrame: ((CGImage) -> Void)?
-
-    /// Non-nil once the CDP client is ready. Exposed to the view so
-    /// mouse / key events can route through it.
+    /// Input router bound to the attached page session. Used by the view
+    /// to dispatch mouse / key events.
     private(set) var inputRouter: ChromiumCDPInputRouter?
 
-    private static let debounceMs: Int = 16
-    /// Cooldown between user-drag detection and next snap-back push, so
-    /// we don't fight a live drag (Chromium emits AX events continuously
-    /// during the drag). 180ms is long enough to wait for the user to let
-    /// go of the title bar.
-    private static let axReassertDelayMs: Int = 180
+    private static let resizeDebounceMs: Int = 16
 
     init() {
         self.id = UUID()
@@ -85,12 +60,9 @@ final class BrowserCDPPanel: Panel, ObservableObject {
         do {
             let binary = try locator.locate()
             self.manager = ChromiumLaunchManager(binary: binary)
-            manager.onProcessExit = { [weak self] in
-                self?.handleChromiumExited()
-            }
+            manager.onProcessExit = { [weak self] in self?.handleChromiumExited() }
             launch()
         } catch {
-            // Initialize with an unusable manager; we report the error via status.
             self.manager = ChromiumLaunchManager(
                 binary: ChromiumBinary(path: "/dev/null", source: .envOverride)
             )
@@ -101,37 +73,36 @@ final class BrowserCDPPanel: Panel, ObservableObject {
         }
     }
 
-    /// Chromium exited externally (user ⌘Q'd Chromium, crashed, etc.).
-    /// Tear down our CDP client + AX observer and update the view status
-    /// so the user sees the state. The panel itself stays open so the
-    /// user can close the tab or notice the exit.
-    private func handleChromiumExited() {
+    // MARK: - Panel protocol
+
+    func focus() {}
+    func unfocus() {}
+
+    func close() {
         guard !isClosed else { return }
-        #if DEBUG
-        dlog("browserCDP: handleChromiumExited fired")
-        #endif
-        pendingBoundsPush?.cancel()
-        pendingBoundsPush = nil
-        axObserver?.stop()
-        axObserver = nil
-        cachedWindowId = nil
-        let existingClient = client
+        isClosed = true
+        pendingViewportPush?.cancel()
+        pendingViewportPush = nil
+        let session = screencast
+        screencast = nil
+        let cdp = client
         client = nil
-        endpoint = nil
-        isChromiumExited = true
-        statusMessage = String(
-            localized: "browserCDP.panel.status.exited",
-            defaultValue: "Chromium exited. Click Relaunch to start a new session."
-        )
-        if let existingClient {
-            Task<Void, Never> { await existingClient.close() }
+        manager.terminate()
+        Task<Void, Never> {
+            await session?.stop()
+            await cdp?.close()
         }
+    }
+
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) {
+        _ = reason
+        focusFlashToken += 1
     }
 
     // MARK: - Navigation
 
-    /// Navigate the panel's Chromium page to `url`. Resolves bare hostnames
-    /// (e.g. `example.com`) to `https://example.com` for convenience.
+    /// Navigate the page to `url`. Bare hostnames become `https://`,
+    /// free text becomes a Google search.
     func navigate(_ raw: String) {
         guard let cdp = client else { return }
         let normalized = Self.normalizeURL(raw)
@@ -141,241 +112,68 @@ final class BrowserCDPPanel: Panel, ObservableObject {
             do {
                 let (tid, sid) = try await self.ensurePageSession(cdp: cdp)
                 _ = try await cdp.pageNavigate(targetId: tid, sessionId: sid, url: normalized)
-            } catch {
-                #if DEBUG
-                dlog("browserCDP: navigate failed: \(error)")
-                #endif
-            }
+            } catch { self.logNavError("navigate", error) }
         }
     }
 
-    func reload() {
+    func reload()     { runOnSession { cdp, sid in try await cdp.pageReload(sessionId: sid) } }
+    func goBack()     { runOnSession { cdp, sid in try await cdp.pageGoBack(sessionId: sid) } }
+    func goForward()  { runOnSession { cdp, sid in try await cdp.pageGoForward(sessionId: sid) } }
+
+    private func runOnSession(_ body: @escaping (ChromiumCDPClient, String) async throws -> Void) {
         guard let cdp = client else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
                 let (_, sid) = try await self.ensurePageSession(cdp: cdp)
-                try await cdp.pageReload(sessionId: sid)
-            } catch {
-                #if DEBUG
-                dlog("browserCDP: reload failed: \(error)")
-                #endif
-            }
+                try await body(cdp, sid)
+            } catch { self.logNavError("session op", error) }
         }
     }
 
-    func goBack() {
-        guard let cdp = client else { return }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                let (_, sid) = try await self.ensurePageSession(cdp: cdp)
-                try await cdp.pageGoBack(sessionId: sid)
-            } catch {
-                #if DEBUG
-                dlog("browserCDP: goBack failed: \(error)")
-                #endif
-            }
-        }
-    }
+    // MARK: - Relaunch after external exit
 
-    func goForward() {
-        guard let cdp = client else { return }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                let (_, sid) = try await self.ensurePageSession(cdp: cdp)
-                try await cdp.pageGoForward(sessionId: sid)
-            } catch {
-                #if DEBUG
-                dlog("browserCDP: goForward failed: \(error)")
-                #endif
-            }
-        }
-    }
-
-    private func ensurePageSession(cdp: ChromiumCDPClient) async throws -> (String, String) {
-        if let tid = cachedPageTargetId, let sid = cachedPageSessionId {
-            return (tid, sid)
-        }
-        guard let tid = try await cdp.firstPageTargetId() else {
-            throw CDPError.malformedResponse("no page target available")
-        }
-        let sid = try await cdp.targetAttach(targetId: tid)
-        cachedPageTargetId = tid
-        cachedPageSessionId = sid
-        return (tid, sid)
-    }
-
-    private static func normalizeURL(_ raw: String) -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return "about:blank" }
-        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") ||
-           trimmed.hasPrefix("file://") || trimmed.hasPrefix("about:") ||
-           trimmed.hasPrefix("chrome://") || trimmed.hasPrefix("data:") {
-            return trimmed
-        }
-        // Hostname shortcut: "example.com" → https, "text with spaces" → google search.
-        if trimmed.contains(" ") || !trimmed.contains(".") {
-            let q = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? trimmed
-            return "https://www.google.com/search?q=\(q)"
-        }
-        return "https://\(trimmed)"
-    }
-
-    /// Opt-in capture mode: switch from park (Chromium as its own NSWindow)
-    /// to SCStream pixel mirroring + CDP-routed input. No-op on macOS
-    /// earlier than 12.3 (SCStream requires Sonoma APIs).
-    /// Legacy API kept for the panel view's binding compatibility.
-    /// Headless-mode rendering is always on; this is effectively a no-op.
-    func setCaptureMode(_ enabled: Bool) {
-        _ = enabled
-    }
-
-    /// Start the CDP screencast against the panel's first page session
-    /// and install the frame callback. Called once the CDP client has
-    /// connected.
-    private func startScreencastIfNeeded() {
-        guard let cdp = client, screencast == nil else { return }
-        let size = lastRequestedRect?.size ?? CGSize(width: 1280, height: 800)
-        let scale = Int(NSScreen.main?.backingScaleFactor ?? 2)
-        let maxW = max(Int(size.width) * scale, 800)
-        let maxH = max(Int(size.height) * scale, 600)
-        let session = ChromiumScreencastSession(client: cdp)
-        screencast = session
-        session.onFrame = { [weak self] image in
-            guard let self else { return }
-            self.lastFrame = image
-            self.onScreencastFrame?(image)
-        }
-        #if DEBUG
-        dlog("browserCDP: startScreencastIfNeeded size=\(size) maxW=\(maxW) maxH=\(maxH)")
-        #endif
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                #if DEBUG
-                dlog("browserCDP: ensurePageSession…")
-                #endif
-                let (tid, sid) = try await self.ensurePageSession(cdp: cdp)
-                #if DEBUG
-                dlog("browserCDP: attached target=\(tid) session=\(sid)")
-                #endif
-                self.inputRouter = ChromiumCDPInputRouter(client: cdp, sessionId: sid)
-                try await cdp.emulationSetDeviceMetricsOverride(
-                    sessionId: sid,
-                    width: Int(size.width),
-                    height: Int(size.height),
-                    deviceScaleFactor: Double(scale)
-                )
-                #if DEBUG
-                dlog("browserCDP: setDeviceMetricsOverride ok")
-                #endif
-                try await session.start(pageSessionId: sid, maxWidth: maxW, maxHeight: maxH)
-                #if DEBUG
-                dlog("browserCDP: screencast started")
-                #endif
-            } catch {
-                #if DEBUG
-                dlog("browserCDP: screencast start failed: \(error)")
-                #endif
-            }
-        }
-    }
-
-    /// Push a new viewport size into Chromium via Emulation.setDeviceMetricsOverride
-    /// + resize the screencast. Called from pushBounds after debounce.
-    private func applyViewportSize(_ size: CGSize) async {
-        guard let cdp = client else { return }
-        guard let sid = cachedPageSessionId else { return }
-        let scale = Double(NSScreen.main?.backingScaleFactor ?? 2)
-        let w = max(Int(size.width), 200)
-        let h = max(Int(size.height), 150)
-        do {
-            try await cdp.emulationSetDeviceMetricsOverride(
-                sessionId: sid,
-                width: w,
-                height: h,
-                deviceScaleFactor: scale
-            )
-            try await screencast?.resize(maxWidth: w * Int(scale), maxHeight: h * Int(scale))
-        } catch {
-            #if DEBUG
-            dlog("browserCDP: viewport resize failed: \(error)")
-            #endif
-        }
-    }
-
-    /// Spawn a fresh Chromium subprocess, reusing this panel's CDP/view
-    /// state. Used by the Relaunch button after `handleChromiumExited`.
     func relaunch() {
         guard !isClosed, isChromiumExited else { return }
         isChromiumExited = false
-        manager.terminate() // no-op if already torn down; clears userDataDir state
-        manager.onProcessExit = { [weak self] in
-            self?.handleChromiumExited()
-        }
+        manager.terminate()
+        manager.onProcessExit = { [weak self] in self?.handleChromiumExited() }
         launch()
     }
 
-    // MARK: - Panel protocol
-
-    func focus() {}
-    func unfocus() {}
-
-    func close() {
+    private func handleChromiumExited() {
         guard !isClosed else { return }
-        isClosed = true
-        pendingBoundsPush?.cancel()
-        pendingBoundsPush = nil
-        axObserver?.stop()
-        axObserver = nil
-        let existingScreencast = screencast
+        pendingViewportPush?.cancel()
+        pendingViewportPush = nil
+        pageTargetId = nil
+        pageSessionId = nil
+        let session = screencast
         screencast = nil
-        let existingClient = client
+        let cdp = client
         client = nil
-        manager.terminate()
+        endpoint = nil
+        inputRouter = nil
+        isChromiumExited = true
+        statusMessage = String(
+            localized: "browserCDP.panel.status.exited",
+            defaultValue: "Chromium exited. Click Relaunch to start a new session."
+        )
         Task<Void, Never> {
-            await existingScreencast?.stop()
-            await existingClient?.close()
+            await session?.stop()
+            await cdp?.close()
         }
-    }
-
-    func triggerFlash(reason: WorkspaceAttentionFlashReason) {
-        _ = reason
-        focusFlashToken += 1
     }
 
     // MARK: - View integration
 
-    /// Headless rendering does not need to minimize Chromium when the
-    /// tab is hidden — there is no on-screen window. Left as a no-op
-    /// so existing view bindings still compile.
-    func setVisible(_ visible: Bool) {
-        _ = visible
-    }
-
-    private func readLastRect() async -> CGRect? { lastRequestedRect }
-
-    private func resolveWindowId(with cdp: ChromiumCDPClient) async throws -> Int {
-        if let cached = cachedWindowId { return cached }
-        guard let targetId = try await cdp.firstPageTargetId() else {
-            throw CDPError.malformedResponse("no page target")
-        }
-        let windowId = try await cdp.browserGetWindowForTarget(targetId: targetId)
-        cachedWindowId = windowId
-        return windowId
-    }
-
-    /// Called by the view when its size changes. In headless mode we use
-    /// CDP `Emulation.setDeviceMetricsOverride` to make Chromium render
-    /// at the panel's exact dimensions so the screencast fills the view
-    /// 1:1. Debounced so a live drag doesn't spam CDP.
+    /// Called by the panel view each time its on-screen size changes.
+    /// Drives `Emulation.setDeviceMetricsOverride` + screencast resize
+    /// after a 16 ms debounce so live drags don't spam CDP.
     func pushBounds(_ rect: CGRect) {
         guard !isClosed else { return }
-        lastRequestedRect = rect
+        lastViewportSize = rect.size
         guard client != nil else { return }
-        pendingBoundsPush?.cancel()
+        pendingViewportPush?.cancel()
         let block: @Sendable () -> Void = { [weak self] in
             guard let self else { return }
             MainActor.assumeIsolated {
@@ -385,12 +183,19 @@ final class BrowserCDPPanel: Panel, ObservableObject {
             }
         }
         let work = DispatchWorkItem(block: block)
-        pendingBoundsPush = work
+        pendingViewportPush = work
         DispatchQueue.main.asyncAfter(
-            deadline: .now() + .milliseconds(Self.debounceMs),
+            deadline: .now() + .milliseconds(Self.resizeDebounceMs),
             execute: work
         )
     }
+
+    /// Legacy no-op kept for the panel view's setVisible / setCaptureMode
+    /// bindings that are still on the call graph. Headless screencast
+    /// doesn't need visibility transitions — the rendering is invisible
+    /// until we decode a frame into the CALayer.
+    func setVisible(_ visible: Bool) { _ = visible }
+    func setCaptureMode(_ enabled: Bool) { _ = enabled }
 
     // MARK: - Private
 
@@ -403,27 +208,21 @@ final class BrowserCDPPanel: Panel, ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self, !self.isClosed else { return }
                 switch result {
-                case .success(let endpoint):
-                    self.endpoint = endpoint
+                case .success(let ep):
+                    self.endpoint = ep
                     self.statusMessage = String(
                         format: String(
                             localized: "browserCDP.panel.status.connected",
                             defaultValue: "Connected: %@"
                         ),
-                        endpoint.webSocketURL.absoluteString
+                        ep.webSocketURL.absoluteString
                     )
-                    let transport = CDPWebSocketTransport(url: endpoint.webSocketURL)
+                    let transport = CDPWebSocketTransport(url: ep.webSocketURL)
                     let cdp = ChromiumCDPClient(transport: transport)
                     self.client = cdp
                     do {
                         try await cdp.connect()
-                        if let pending = self.lastRequestedRect {
-                            self.pushBounds(pending)
-                        }
-                        // Headless mode: no native window, no AX observer,
-                        // no Screen Recording permission dance. Just start
-                        // the CDP screencast directly.
-                        self.startScreencastIfNeeded()
+                        try await self.startScreencast(cdp: cdp)
                     } catch {
                         self.statusMessage = String(
                             format: String(
@@ -446,56 +245,71 @@ final class BrowserCDPPanel: Panel, ObservableObject {
         }
     }
 
-    private func installAXObserverIfPossible() {
-        guard axObserver == nil, let pid = manager.pid else { return }
-        let observer = ChromiumAXObserver(pid: pid)
-        observer.onWindowMovedOrResized = { [weak self] in
-            self?.handleAXWindowEvent()
-        }
-        guard observer.start() else {
-            // Accessibility permission not granted. Reverse sync stays
-            // disabled; the forward path (panel → Chromium) still works.
-            return
-        }
-        self.axObserver = observer
-    }
-
-    /// User dragged or resized the Chromium window. Wait out the drag
-    /// (handler coalesces), then re-assert the panel rect.
-    private func handleAXWindowEvent() {
-        guard !isClosed, let rect = lastRequestedRect else { return }
-        pendingBoundsPush?.cancel()
-        let block: @Sendable () -> Void = { [weak self] in
-            guard let self else { return }
-            MainActor.assumeIsolated {
-                let _: Task<Void, Never> = Task { [weak self] in
-                    await self?.sendBounds(rect)
-                }
-            }
-        }
-        let work = DispatchWorkItem(block: block)
-        pendingBoundsPush = work
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + .milliseconds(Self.axReassertDelayMs),
-            execute: work
+    private func startScreencast(cdp: ChromiumCDPClient) async throws {
+        let size = lastViewportSize ?? CGSize(width: 1280, height: 800)
+        let scale = Int(NSScreen.main?.backingScaleFactor ?? 2)
+        let (_, sid) = try await ensurePageSession(cdp: cdp)
+        inputRouter = ChromiumCDPInputRouter(client: cdp, sessionId: sid)
+        try await cdp.emulationSetDeviceMetricsOverride(
+            sessionId: sid,
+            width: Int(size.width),
+            height: Int(size.height),
+            deviceScaleFactor: Double(scale)
+        )
+        let session = ChromiumScreencastSession(client: cdp)
+        screencast = session
+        try await session.start(
+            pageSessionId: sid,
+            maxWidth: Int(size.width) * scale,
+            maxHeight: Int(size.height) * scale
         )
     }
 
-    private func sendBounds(_ rect: CGRect) async {
-        guard let cdp = client, !isClosed else { return }
+    private func applyViewportSize(_ size: CGSize) async {
+        guard let cdp = client, let sid = pageSessionId else { return }
+        let scale = Double(NSScreen.main?.backingScaleFactor ?? 2)
+        let w = max(Int(size.width), 200)
+        let h = max(Int(size.height), 150)
         do {
-            let windowId = try await resolveWindowId(with: cdp)
-            try await cdp.browserSetWindowBounds(
-                windowId: windowId,
-                bounds: .init(
-                    left: Int(rect.origin.x),
-                    top: Int(rect.origin.y),
-                    width: Int(rect.size.width),
-                    height: Int(rect.size.height)
-                )
+            try await cdp.emulationSetDeviceMetricsOverride(
+                sessionId: sid,
+                width: w,
+                height: h,
+                deviceScaleFactor: scale
             )
-        } catch {
-            // Transient failures are expected during drag-resize; don't escalate.
+            try await screencast?.resize(
+                maxWidth: w * Int(scale),
+                maxHeight: h * Int(scale)
+            )
+        } catch { logNavError("viewport resize", error) }
+    }
+
+    private func ensurePageSession(cdp: ChromiumCDPClient) async throws -> (String, String) {
+        if let tid = pageTargetId, let sid = pageSessionId { return (tid, sid) }
+        guard let tid = try await cdp.firstPageTargetId() else {
+            throw CDPError.malformedResponse("no page target available")
         }
+        let sid = try await cdp.targetAttach(targetId: tid)
+        pageTargetId = tid
+        pageSessionId = sid
+        return (tid, sid)
+    }
+
+    private static func normalizeURL(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "about:blank" }
+        let schemePrefixes = ["http://", "https://", "file://", "about:", "chrome://", "data:"]
+        if schemePrefixes.contains(where: trimmed.hasPrefix) { return trimmed }
+        if trimmed.contains(" ") || !trimmed.contains(".") {
+            let q = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? trimmed
+            return "https://www.google.com/search?q=\(q)"
+        }
+        return "https://\(trimmed)"
+    }
+
+    private func logNavError(_ context: String, _ error: Error) {
+        #if DEBUG
+        dlog("browserCDP: \(context) failed: \(error)")
+        #endif
     }
 }
