@@ -1,6 +1,9 @@
 import Foundation
 import Combine
 import AppKit
+#if DEBUG
+import Bonsplit
+#endif
 
 /// Panel that hosts a CDP-driven Chromium window. Phase 2 MVP: each panel
 /// owns one Chromium subprocess launched with --remote-debugging-port, and
@@ -40,6 +43,26 @@ final class BrowserCDPPanel: Panel, ObservableObject {
     /// Tracks whether Chromium has exited externally; surfaces as a Relaunch
     /// button in the view.
     @Published private(set) var isChromiumExited: Bool = false
+
+    /// Phase 3b opt-in: when true, the panel view renders Chromium pixels
+    /// directly via ScreenCaptureKit and routes mouse/key input via CDP
+    /// Input.dispatch*. When false (default) the park path is used.
+    @Published private(set) var captureMode: Bool = false
+
+    /// Storage for the capture stream. Kept type-erased to avoid
+    /// sprinkling @available guards through the class; the stored value
+    /// is always an `AnyObject?` that downcasts to
+    /// `ChromiumScreenCaptureStream` when the macOS version supports it.
+    private var captureStreamStorage: AnyObject?
+    /// Exposed to BrowserCDPPanelView for rendering. Nil on macOS < 12.3.
+    @available(macOS 12.3, *)
+    var captureStream: ChromiumScreenCaptureStream? {
+        captureStreamStorage as? ChromiumScreenCaptureStream
+    }
+    /// Non-nil while capture mode is active and the CDP client is ready.
+    /// Exposed to the view so mouse / key events can route through it.
+    private(set) var inputRouter: ChromiumCDPInputRouter?
+
     private static let debounceMs: Int = 16
     /// Cooldown between user-drag detection and next snap-back push, so
     /// we don't fight a live drag (Chromium emits AX events continuously
@@ -90,6 +113,39 @@ final class BrowserCDPPanel: Panel, ObservableObject {
         )
         if let existingClient {
             Task<Void, Never> { await existingClient.close() }
+        }
+    }
+
+    /// Opt-in capture mode: switch from park (Chromium as its own NSWindow)
+    /// to SCStream pixel mirroring + CDP-routed input. No-op on macOS
+    /// earlier than 12.3 (SCStream requires Sonoma APIs).
+    func setCaptureMode(_ enabled: Bool) {
+        guard !isClosed, captureMode != enabled else { return }
+        if enabled {
+            if #available(macOS 12.3, *) {
+                guard let cdp = client, let pid = manager.pid else { return }
+                let stream = ChromiumScreenCaptureStream(pid: pid)
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    do {
+                        try await stream.start()
+                        self.captureStreamStorage = stream
+                        self.inputRouter = ChromiumCDPInputRouter(client: cdp)
+                        self.captureMode = true
+                    } catch {
+                        #if DEBUG
+                        dlog("browserCDP: capture start failed: \(error)")
+                        #endif
+                    }
+                }
+            }
+        } else {
+            if #available(macOS 12.3, *) {
+                (captureStreamStorage as? ChromiumScreenCaptureStream)?.stop()
+            }
+            captureStreamStorage = nil
+            inputRouter = nil
+            captureMode = false
         }
     }
 

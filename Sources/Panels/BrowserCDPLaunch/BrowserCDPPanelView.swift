@@ -12,42 +12,11 @@ struct BrowserCDPPanelView: View {
 
     var body: some View {
         ZStack {
-            Rectangle()
-                .fill(LinearGradient(
-                    colors: [Color(red: 0.07, green: 0.07, blue: 0.09), Color(red: 0.10, green: 0.10, blue: 0.14)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                ))
-
-            VStack(spacing: 12) {
-                Text(String(localized: "browserCDP.panel.bodyText",
-                            defaultValue: "Chromium is rendered in its own OS window."))
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                Text(panel.statusMessage)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 20)
-                if let endpoint = panel.endpoint {
-                    Button(String(localized: "browserCDP.panel.copyURL",
-                                  defaultValue: "Copy CDP URL")) {
-                        let pb = NSPasteboard.general
-                        pb.clearContents()
-                        pb.setString(endpoint.webSocketURL.absoluteString, forType: .string)
-                    }
-                    .controlSize(.small)
-                }
-                if panel.isChromiumExited {
-                    Button(String(localized: "browserCDP.panel.relaunch",
-                                  defaultValue: "Relaunch Chromium")) {
-                        panel.relaunch()
-                    }
-                    .controlSize(.small)
-                    .keyboardShortcut(.defaultAction)
-                }
+            if panel.captureMode, #available(macOS 12.3, *), let stream = panel.captureStream {
+                ChromiumCaptureView(sampleBufferStream: stream)
+            } else {
+                parkPlaceholder
             }
-            .padding()
         }
         .overlay(
             CDPPanelFrameObserver(
@@ -64,6 +33,55 @@ struct BrowserCDPPanelView: View {
             panel.setVisible(newValue)
         }
         .onAppear { panel.setVisible(isVisibleInUI) }
+    }
+
+    @ViewBuilder private var parkPlaceholder: some View {
+        Rectangle()
+            .fill(LinearGradient(
+                colors: [Color(red: 0.07, green: 0.07, blue: 0.09), Color(red: 0.10, green: 0.10, blue: 0.14)],
+                startPoint: .top,
+                endPoint: .bottom
+            ))
+            .overlay(
+                VStack(spacing: 12) {
+                    Text(String(localized: "browserCDP.panel.bodyText",
+                                defaultValue: "Chromium is rendered in its own OS window."))
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(panel.statusMessage)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 20)
+                    if let endpoint = panel.endpoint {
+                        Button(String(localized: "browserCDP.panel.copyURL",
+                                      defaultValue: "Copy CDP URL")) {
+                            let pb = NSPasteboard.general
+                            pb.clearContents()
+                            pb.setString(endpoint.webSocketURL.absoluteString, forType: .string)
+                        }
+                        .controlSize(.small)
+                    }
+                    if panel.isChromiumExited {
+                        Button(String(localized: "browserCDP.panel.relaunch",
+                                      defaultValue: "Relaunch Chromium")) {
+                            panel.relaunch()
+                        }
+                        .controlSize(.small)
+                        .keyboardShortcut(.defaultAction)
+                    }
+                    if #available(macOS 12.3, *), panel.endpoint != nil {
+                        Button(String(
+                            localized: "browserCDP.panel.enableCapture",
+                            defaultValue: "Enable pixel capture (experimental)"
+                        )) {
+                            panel.setCaptureMode(true)
+                        }
+                        .controlSize(.small)
+                    }
+                }
+                .padding()
+            )
     }
 }
 
