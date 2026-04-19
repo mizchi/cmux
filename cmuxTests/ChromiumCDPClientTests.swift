@@ -102,28 +102,29 @@ final class ChromiumCDPClientTests: XCTestCase {
         XCTAssertEqual(resB["product"] as? String, "HeadlessChrome")
     }
 
-    func test_browserSetWindowBoundsHelperShape() async throws {
+    func test_emulationSetDeviceMetricsOverrideHelperShape() async throws {
         let transport = FakeTransport()
         let client = ChromiumCDPClient(transport: transport)
         try await client.connect()
 
         let task = Task {
-            try await client.browserSetWindowBounds(
-                windowId: 42,
-                bounds: .init(left: 100, top: 200, width: 800, height: 600)
+            try await client.emulationSetDeviceMetricsOverride(
+                sessionId: "sess-1",
+                width: 1024,
+                height: 768,
+                deviceScaleFactor: 2.0
             )
         }
 
         try await Task.sleep(nanoseconds: 50_000_000)
         let sentJSON = try JSONSerialization.jsonObject(with: transport.sent[0]) as! [String: Any]
-        XCTAssertEqual(sentJSON["method"] as? String, "Browser.setWindowBounds")
+        XCTAssertEqual(sentJSON["method"] as? String, "Emulation.setDeviceMetricsOverride")
+        XCTAssertEqual(sentJSON["sessionId"] as? String, "sess-1")
         let params = sentJSON["params"] as! [String: Any]
-        XCTAssertEqual(params["windowId"] as? Int, 42)
-        let bounds = params["bounds"] as! [String: Any]
-        XCTAssertEqual(bounds["left"] as? Int, 100)
-        XCTAssertEqual(bounds["top"] as? Int, 200)
-        XCTAssertEqual(bounds["width"] as? Int, 800)
-        XCTAssertEqual(bounds["height"] as? Int, 600)
+        XCTAssertEqual(params["width"] as? Int, 1024)
+        XCTAssertEqual(params["height"] as? Int, 768)
+        XCTAssertEqual(params["deviceScaleFactor"] as? Double, 2.0)
+        XCTAssertEqual(params["mobile"] as? Bool, false)
 
         let id = sentJSON["id"] as! Int
         transport.deliver("{\"id\":\(id),\"result\":{}}")

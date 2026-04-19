@@ -5,24 +5,24 @@ import Bonsplit
 #endif
 
 /// Byte-stream transport for CDP's JSON-RPC frames. Abstracted behind a
-/// protocol so ChromiumCDPClient can be unit-tested against a FakeTransport
-/// without a real WebSocket.
+/// protocol so `ChromiumCDPClient` can be unit-tested against a
+/// FakeTransport without a real WebSocket.
 protocol CDPTransport: AnyObject {
     func start() async throws
     func stop()
     func send(_ data: Data) async throws
-    /// One AsyncStream covers the lifetime of this transport. Call exactly once
-    /// after start() (or at most once per transport lifetime).
+    /// The incoming stream is built eagerly by `start()`. Call this
+    /// exactly once per transport lifetime to hand it to the consumer.
     func makeIncoming() -> AsyncStream<Data>
 }
 
-/// WebSocket transport built on Network.framework's NWConnection. Used
-/// instead of URLSessionWebSocketTask because the latter silently hangs
-/// against Chromium's CDP endpoint — Chromium's remote-debugging server
-/// disagrees with one of URLSession's default negotiation headers
-/// (most likely `Sec-WebSocket-Extensions: permessage-deflate`) and
-/// closes the socket right after handshake completion. NWProtocolWebSocket
-/// does not request extensions by default, which Chromium accepts.
+/// WebSocket transport built on `Network.framework`'s `NWConnection`.
+/// Chosen over `URLSessionWebSocketTask` because the latter silently
+/// hangs against Chromium's CDP endpoint: URLSession requests
+/// `Sec-WebSocket-Extensions: permessage-deflate` in its handshake and
+/// Chromium's remote-debugging server drops every subsequent frame.
+/// `NWProtocolWebSocket` does not request extensions by default, which
+/// Chromium accepts without issue.
 final class CDPWebSocketTransport: CDPTransport {
     private let url: URL
     private let lock = NSLock()
@@ -37,105 +37,45 @@ final class CDPWebSocketTransport: CDPTransport {
         self.url = url
     }
 
-    func start() async throws {
-        let (stream, continuation) = AsyncStream<Data>.makeStream()
-        lock.lock()
-        self.stream = stream
-        self.continuation = continuation
-        lock.unlock()
+    // MARK: - CDPTransport
 
-        guard let host = url.host, let port = url.port,
-              let nwPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
+    func start() async throws {
+        guard url.host != nil, url.port != nil else {
             throw CDPError.transportNotStarted
         }
-        let nwHost = NWEndpoint.Host(host)
-        let path = url.path.isEmpty ? "/" : url.path
-
-        let wsOptions = NWProtocolWebSocket.Options()
-        wsOptions.autoReplyPing = true
-        // Chromium 147+ requires `Origin` to be present for the WS upgrade
-        // when --remote-allow-origins is specified (even `*`). Synthesise
-        // one from the CDP endpoint itself.
-        let origin = "http://\(host):\(port)"
-        wsOptions.setAdditionalHeaders([
-            ("Origin", origin),
-            ("Host", "\(host):\(port)"),
-        ])
-
-        let parameters = NWParameters.tcp
-        parameters.defaultProtocolStack.applicationProtocols.insert(wsOptions, at: 0)
-
-        // NWConnection dials the host:port and walks the WS upgrade; path
-        // comes from the URL's absolute request line which NWProtocolWebSocket
-        // derives from the supplied host + the connection's metadata.
-        // `NWEndpoint.url` is the cleanest way to carry the path.
-        let endpoint: NWEndpoint = .url(url)
-        _ = nwHost
-        _ = nwPort
-        _ = path
-
-        let connection = NWConnection(to: endpoint, using: parameters)
-        lock.lock()
-        self.connection = connection
-        lock.unlock()
-
-        connection.stateUpdateHandler = { [weak self] state in
-            guard let self else { return }
-            #if DEBUG
-            dlog("CDP ws state: \(state)")
-            #endif
-            switch state {
-            case .ready:
-                self.lock.lock()
-                let cont = self.handshakeContinuation
-                self.handshakeContinuation = nil
-                self.lock.unlock()
-                cont?.resume()
-                self.receiveLoop()
-            case .failed(let error):
-                self.lock.lock()
-                let cont = self.handshakeContinuation
-                self.handshakeContinuation = nil
-                let streamCont = self.continuation
-                self.continuation = nil
-                self.lock.unlock()
-                cont?.resume(throwing: error)
-                streamCont?.finish()
-            case .cancelled:
-                self.lock.lock()
-                let streamCont = self.continuation
-                self.continuation = nil
-                self.lock.unlock()
-                streamCont?.finish()
-            default:
-                break
-            }
+        let (stream, continuation) = AsyncStream<Data>.makeStream()
+        withLock {
+            self.stream = stream
+            self.continuation = continuation
         }
 
+        let connection = NWConnection(to: .url(url), using: Self.wsParameters(url: url))
+        withLock { self.connection = connection }
+
+        connection.stateUpdateHandler = { [weak self] state in
+            self?.handle(state: state)
+        }
         connection.start(queue: queue)
 
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            lock.lock()
-            handshakeContinuation = cont
-            lock.unlock()
+            withLock { handshakeContinuation = cont }
         }
     }
 
     func stop() {
-        lock.lock()
-        let connection = self.connection
-        let continuation = self.continuation
-        self.connection = nil
-        self.continuation = nil
-        lock.unlock()
+        let (connection, streamCont) = withLock { () -> (NWConnection?, AsyncStream<Data>.Continuation?) in
+            let c = self.connection
+            let s = self.continuation
+            self.connection = nil
+            self.continuation = nil
+            return (c, s)
+        }
         connection?.cancel()
-        continuation?.finish()
+        streamCont?.finish()
     }
 
     func send(_ data: Data) async throws {
-        lock.lock()
-        let connection = self.connection
-        lock.unlock()
+        let connection = withLock { self.connection }
         guard let connection else { throw CDPError.transportNotStarted }
         let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
         let context = NWConnection.ContentContext(identifier: "cdp", metadata: [metadata])
@@ -145,28 +85,52 @@ final class CDPWebSocketTransport: CDPTransport {
                 contentContext: context,
                 isComplete: true,
                 completion: .contentProcessed { error in
-                    if let error { cont.resume(throwing: error) }
-                    else { cont.resume() }
+                    error.map { cont.resume(throwing: $0) } ?? cont.resume()
                 }
             )
         }
     }
 
     func makeIncoming() -> AsyncStream<Data> {
-        lock.lock()
-        defer { lock.unlock() }
-        precondition(!incomingDelivered, "CDPWebSocketTransport.makeIncoming called twice")
-        guard let stream else {
-            preconditionFailure("CDPWebSocketTransport.makeIncoming called before start()")
+        withLock {
+            precondition(!incomingDelivered, "CDPWebSocketTransport.makeIncoming called twice")
+            guard let stream else {
+                preconditionFailure("CDPWebSocketTransport.makeIncoming called before start()")
+            }
+            incomingDelivered = true
+            return stream
         }
-        incomingDelivered = true
-        return stream
+    }
+
+    // MARK: - State + receive
+
+    private func handle(state: NWConnection.State) {
+        #if DEBUG
+        dlog("CDP ws state: \(state)")
+        #endif
+        switch state {
+        case .ready:
+            let cont = withLock { () -> CheckedContinuation<Void, Error>? in
+                let c = handshakeContinuation
+                handshakeContinuation = nil
+                return c
+            }
+            cont?.resume()
+            receiveLoop()
+
+        case .failed(let error):
+            finishStream(with: error)
+
+        case .cancelled:
+            finishStream(with: nil)
+
+        default:
+            break
+        }
     }
 
     private func receiveLoop() {
-        lock.lock()
-        let connection = self.connection
-        lock.unlock()
+        let connection = withLock { self.connection }
         guard let connection else { return }
         connection.receiveMessage { [weak self] data, _, isComplete, error in
             guard let self else { return }
@@ -174,23 +138,56 @@ final class CDPWebSocketTransport: CDPTransport {
                 #if DEBUG
                 dlog("CDP ws recv error: \(error)")
                 #endif
-                self.lock.lock()
-                let streamCont = self.continuation
-                self.continuation = nil
-                self.lock.unlock()
-                streamCont?.finish()
+                self.finishStream(with: error)
                 return
             }
             if let data, !data.isEmpty {
-                self.lock.lock()
-                let streamCont = self.continuation
-                self.lock.unlock()
-                streamCont?.yield(data)
+                self.withLock { self.continuation }?.yield(data)
             }
             if isComplete {
                 self.receiveLoop()
             }
         }
+    }
+
+    /// Release both the handshake waiter (if still pending) and the
+    /// incoming stream. Safe to call multiple times — idempotent.
+    private func finishStream(with error: Error?) {
+        let (handshake, streamCont) = withLock { () -> (CheckedContinuation<Void, Error>?, AsyncStream<Data>.Continuation?) in
+            let h = handshakeContinuation
+            handshakeContinuation = nil
+            let s = self.continuation
+            self.continuation = nil
+            return (h, s)
+        }
+        if let error {
+            handshake?.resume(throwing: error)
+        } else {
+            handshake?.resume(throwing: CDPError.transportNotStarted)
+        }
+        streamCont?.finish()
+    }
+
+    // MARK: - Helpers
+
+    private func withLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
+
+    /// WS handshake parameters: set `Origin` explicitly — Chromium 147+
+    /// enforces `--remote-allow-origins` and refuses upgrades whose
+    /// request has no `Origin` header (even when the flag is `*`).
+    private static func wsParameters(url: URL) -> NWParameters {
+        let wsOptions = NWProtocolWebSocket.Options()
+        wsOptions.autoReplyPing = true
+        let origin = "http://\(url.host ?? "127.0.0.1"):\(url.port ?? 0)"
+        wsOptions.setAdditionalHeaders([("Origin", origin)])
+
+        let params = NWParameters.tcp
+        params.defaultProtocolStack.applicationProtocols.insert(wsOptions, at: 0)
+        return params
     }
 }
 
@@ -199,7 +196,6 @@ enum CDPError: Error, CustomStringConvertible {
     case notConnected
     case malformedResponse(String)
     case remote(code: Int, message: String)
-    case requestTimedOut(method: String)
 
     var description: String {
         switch self {
@@ -207,7 +203,6 @@ enum CDPError: Error, CustomStringConvertible {
         case .notConnected: return "CDP client not connected"
         case .malformedResponse(let s): return "Malformed CDP response: \(s)"
         case .remote(let code, let message): return "CDP error \(code): \(message)"
-        case .requestTimedOut(let method): return "CDP request timed out: \(method)"
         }
     }
 }
