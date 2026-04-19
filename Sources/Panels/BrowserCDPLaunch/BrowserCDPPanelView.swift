@@ -117,11 +117,16 @@ private struct CDPPanelFrameObserver: NSViewRepresentable {
         }
 
         private var windowObservers: [NSObjectProtocol] = []
+        private var workspaceObservers: [NSObjectProtocol] = []
 
         private func installWindowObservers() {
             let center = NotificationCenter.default
             for token in windowObservers { center.removeObserver(token) }
             windowObservers.removeAll()
+            for token in workspaceObservers {
+                NSWorkspace.shared.notificationCenter.removeObserver(token)
+            }
+            workspaceObservers.removeAll()
             guard let window else {
                 // View was removed from its window — treat as not visible.
                 onWindowVisibilityChange?(false)
@@ -150,9 +155,25 @@ private struct CDPPanelFrameObserver: NSViewRepresentable {
                 self?.publishCurrentRect()
             }
             windowObservers.append(demini)
+            // Active-space changes (⌃←/→, Mission Control). NSWorkspace
+            // fires this on every Space transition; we inspect whether our
+            // window is on the new active Space and route visibility.
+            let spaceToken = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.activeSpaceDidChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                guard let self, let window = self.window else { return }
+                let visible = window.isOnActiveSpace && !window.isMiniaturized && window.isVisible
+                self.onWindowVisibilityChange?(visible)
+                if visible { self.publishCurrentRect() }
+            }
+            workspaceObservers.append(spaceToken)
             // Propagate current visibility on install (miniaturized state is
             // sticky across window-assignment transitions).
-            onWindowVisibilityChange?(!window.isMiniaturized && window.isVisible)
+            onWindowVisibilityChange?(
+                !window.isMiniaturized && window.isVisible && window.isOnActiveSpace
+            )
         }
 
         private func publishCurrentRect() {
@@ -176,6 +197,9 @@ private struct CDPPanelFrameObserver: NSViewRepresentable {
         deinit {
             let center = NotificationCenter.default
             for token in windowObservers { center.removeObserver(token) }
+            for token in workspaceObservers {
+                NSWorkspace.shared.notificationCenter.removeObserver(token)
+            }
         }
     }
 }
