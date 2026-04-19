@@ -51,6 +51,7 @@
 		BC11000005 /* ChromiumBinaryLocatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000005 /* ChromiumBinaryLocatorTests.swift */; };
 		BC11000006 /* ChromiumDevToolsPortWatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000006 /* ChromiumDevToolsPortWatcherTests.swift */; };
 		BC11000007 /* ChromiumLaunchManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000007 /* ChromiumLaunchManagerTests.swift */; };
+		BC11000008 /* BrowserCDPDebugLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000008 /* BrowserCDPDebugLauncher.swift */; };
 		A5001421 /* MarkdownPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001419 /* MarkdownPanelView.swift */; };
 		A5001290 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A5001291 /* MarkdownUI */; };
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
@@ -271,6 +272,7 @@
 		BC22000005 /* ChromiumBinaryLocatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromiumBinaryLocatorTests.swift; sourceTree = "<group>"; };
 		BC22000006 /* ChromiumDevToolsPortWatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromiumDevToolsPortWatcherTests.swift; sourceTree = "<group>"; };
 		BC22000007 /* ChromiumLaunchManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromiumLaunchManagerTests.swift; sourceTree = "<group>"; };
+		BC22000008 /* BrowserCDPDebugLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/BrowserCDPDebugLauncher.swift; sourceTree = "<group>"; };
 		A5001419 /* MarkdownPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelView.swift; sourceTree = "<group>"; };
 		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		A5001417 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
@@ -534,6 +536,7 @@
 				BC22000002 /* ChromiumBinaryLocator.swift */,
 				BC22000003 /* ChromiumDevToolsPortWatcher.swift */,
 				BC22000004 /* ChromiumLaunchManager.swift */,
+				BC22000008 /* BrowserCDPDebugLauncher.swift */,
 				A5001415 /* PanelContentView.swift */,
 				A5001211 /* UpdateController.swift */,
 				A5001212 /* UpdateDelegate.swift */,
@@ -873,6 +876,7 @@
 				BC11000002 /* ChromiumBinaryLocator.swift in Sources */,
 				BC11000003 /* ChromiumDevToolsPortWatcher.swift in Sources */,
 				BC11000004 /* ChromiumLaunchManager.swift in Sources */,
+				BC11000008 /* BrowserCDPDebugLauncher.swift in Sources */,
 				A5001421 /* MarkdownPanelView.swift in Sources */,
 				A5001500 /* CmuxWebView.swift in Sources */,
 				A5001405 /* PanelContentView.swift in Sources */,

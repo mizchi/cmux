@@ -502,6 +502,9 @@ struct cmuxApp: App {
                     Button("Debug Window Controls…") {
                         DebugWindowControlsWindowController.shared.show()
                     }
+                    Button("Launch Chromium (CDP)…") {
+                        Task.detached { await BrowserCDPDebugLauncher.launchAndReportURL() }
+                    }
                     Button("Menu Bar Extra Debug…") {
                         MenuBarExtraDebugWindowController.shared.show()
                     }
