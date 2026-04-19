@@ -129,4 +129,55 @@ final class ChromiumCDPClientTests: XCTestCase {
         transport.deliver("{\"id\":\(id),\"result\":{}}")
         try await task.value
     }
+
+    func test_closeCancelsInflightRequestWithNotConnected() async throws {
+        let transport = FakeTransport()
+        let client = ChromiumCDPClient(transport: transport)
+        try await client.connect()
+
+        let resultTask = Task<[String: Any], Error> {
+            try await client.send(method: "Target.getTargets", params: [:])
+        }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(transport.sent.count, 1)
+
+        await client.close()
+
+        do {
+            _ = try await resultTask.value
+            XCTFail("expected notConnected after close()")
+        } catch CDPError.notConnected {
+            // expected
+        }
+    }
+
+    func test_connectIsIdempotent() async throws {
+        let transport = FakeTransport()
+        let client = ChromiumCDPClient(transport: transport)
+        try await client.connect()
+        // Second connect should be a no-op; subsequent send should still work.
+        try await client.connect()
+
+        let task = Task<[String: Any], Error> {
+            try await client.send(method: "Browser.getVersion", params: [:])
+        }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(transport.sent.count, 1)
+        let sentJSON = try JSONSerialization.jsonObject(with: transport.sent[0]) as! [String: Any]
+        let id = sentJSON["id"] as! Int
+        transport.deliver("{\"id\":\(id),\"result\":{\"product\":\"X\"}}")
+        let result = try await task.value
+        XCTAssertEqual(result["product"] as? String, "X")
+    }
+
+    func test_sendWithoutConnectThrowsNotConnected() async throws {
+        let transport = FakeTransport()
+        let client = ChromiumCDPClient(transport: transport)
+        do {
+            _ = try await client.send(method: "Browser.getVersion", params: [:])
+            XCTFail("expected notConnected before connect()")
+        } catch CDPError.notConnected {
+            // expected
+        }
+    }
 }
