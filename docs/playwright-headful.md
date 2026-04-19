@@ -1,8 +1,9 @@
 # Playwright headful against cmux's Chromium (phase 1)
 
-> Phase 1 status: cmux launches Chromium and hands you its CDP URL. The
-> Chromium window is separate from the cmux window. Phase 2 will embed it
-> into a cmux panel.
+> Phase 2 status: cmux launches Chromium and can drive its screen rect via
+> CDP Browser.setWindowBounds. The Chromium window is still its own
+> NSWindow (not reparented) — we coordinate its bounds instead of
+> embedding pixels. Phase 2b will auto-follow the cmux panel's rect.
 
 ## Launch
 
@@ -37,6 +38,21 @@ await browser.close();
 
 `chromium_headless_shell-*` builds are skipped — they don't have a window
 and can't be driven via CDP for headful tests.
+
+## Phase 2 (park): Debug-menu "Move Chromium to cmux Window"
+
+Phase 2 adds a CDP client to cmux and a second Debug menu entry:
+
+`Debug → Debug Windows → Move Chromium to cmux Window`
+
+After launching Chromium via the phase 1 button, click "Move Chromium to
+cmux Window" to tell Chromium (via `Browser.setWindowBounds`) to occupy the
+cmux main window's screen rect. Chromium remains a real NSWindow in its
+own process — native cursor, IME, and scrolling all work — but its rect
+is driven by cmux.
+
+Phase 2b will follow the cmux panel's NSView frame live (not just on
+button click) and re-assert the rect when the user drags Chromium.
 
 ## Known limitations (phase 1)
 
