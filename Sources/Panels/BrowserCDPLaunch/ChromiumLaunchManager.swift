@@ -42,6 +42,14 @@ final class ChromiumLaunchManager {
         let stderrPipe = Pipe()
         proc.standardOutput = stdoutPipe
         proc.standardError = stderrPipe
+        // Drain the pipes so Chromium never blocks on full buffers. We discard
+        // the bytes for now; phase 2 will tee them to /tmp/cmux-chromium-<id>.log.
+        stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+            _ = handle.availableData
+        }
+        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+            _ = handle.availableData
+        }
 
         do {
             try proc.run()

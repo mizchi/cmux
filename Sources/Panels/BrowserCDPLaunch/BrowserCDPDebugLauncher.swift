@@ -2,6 +2,7 @@
 import AppKit
 import Bonsplit
 
+@MainActor
 enum BrowserCDPDebugLauncher {
     private static var manager: ChromiumLaunchManager?
     private static var observerInstalled = false
@@ -49,12 +50,13 @@ enum BrowserCDPDebugLauncher {
             object: nil,
             queue: .main
         ) { _ in
-            manager?.terminate()
-            manager = nil
+            MainActor.assumeIsolated {
+                manager?.terminate()
+                manager = nil
+            }
         }
     }
 
-    @MainActor
     private static func presentAlert(title: String, body: String) {
         let alert = NSAlert()
         alert.messageText = title
