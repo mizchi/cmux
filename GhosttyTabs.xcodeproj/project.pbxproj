@@ -44,6 +44,13 @@
 		A5007420 /* BrowserPopupWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007421 /* BrowserPopupWindowController.swift */; };
 		A5007422 /* BrowserWebAuthnSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007423 /* BrowserWebAuthnSupport.swift */; };
 		A5001420 /* MarkdownPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001418 /* MarkdownPanel.swift */; };
+		BC11000001 /* ChromiumFileSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000001 /* ChromiumFileSystem.swift */; };
+		BC11000002 /* ChromiumBinaryLocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000002 /* ChromiumBinaryLocator.swift */; };
+		BC11000003 /* ChromiumDevToolsPortWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000003 /* ChromiumDevToolsPortWatcher.swift */; };
+		BC11000004 /* ChromiumLaunchManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000004 /* ChromiumLaunchManager.swift */; };
+		BC11000005 /* ChromiumBinaryLocatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000005 /* ChromiumBinaryLocatorTests.swift */; };
+		BC11000006 /* ChromiumDevToolsPortWatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000006 /* ChromiumDevToolsPortWatcherTests.swift */; };
+		BC11000007 /* ChromiumLaunchManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000007 /* ChromiumLaunchManagerTests.swift */; };
 		A5001421 /* MarkdownPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001419 /* MarkdownPanelView.swift */; };
 		A5001290 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A5001291 /* MarkdownUI */; };
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
@@ -257,6 +264,13 @@
 		A5007423 /* BrowserWebAuthnSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnSupport.swift; sourceTree = "<group>"; };
 		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
 		A5001418 /* MarkdownPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanel.swift; sourceTree = "<group>"; };
+		BC22000001 /* ChromiumFileSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/ChromiumFileSystem.swift; sourceTree = "<group>"; };
+		BC22000002 /* ChromiumBinaryLocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/ChromiumBinaryLocator.swift; sourceTree = "<group>"; };
+		BC22000003 /* ChromiumDevToolsPortWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/ChromiumDevToolsPortWatcher.swift; sourceTree = "<group>"; };
+		BC22000004 /* ChromiumLaunchManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/ChromiumLaunchManager.swift; sourceTree = "<group>"; };
+		BC22000005 /* ChromiumBinaryLocatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromiumBinaryLocatorTests.swift; sourceTree = "<group>"; };
+		BC22000006 /* ChromiumDevToolsPortWatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromiumDevToolsPortWatcherTests.swift; sourceTree = "<group>"; };
+		BC22000007 /* ChromiumLaunchManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromiumLaunchManagerTests.swift; sourceTree = "<group>"; };
 		A5001419 /* MarkdownPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelView.swift; sourceTree = "<group>"; };
 		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		A5001417 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
@@ -516,6 +530,10 @@
 				A5001418 /* MarkdownPanel.swift */,
 				A5001419 /* MarkdownPanelView.swift */,
 				A5001510 /* CmuxWebView.swift */,
+				BC22000001 /* ChromiumFileSystem.swift */,
+				BC22000002 /* ChromiumBinaryLocator.swift */,
+				BC22000003 /* ChromiumDevToolsPortWatcher.swift */,
+				BC22000004 /* ChromiumLaunchManager.swift */,
 				A5001415 /* PanelContentView.swift */,
 				A5001211 /* UpdateController.swift */,
 				A5001212 /* UpdateDelegate.swift */,
@@ -639,6 +657,9 @@
 					C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */,
 					FE002001 /* FileExplorerRootResolverTests.swift */,
 					FE002002 /* FileExplorerStoreTests.swift */,
+					BC22000005 /* ChromiumBinaryLocatorTests.swift */,
+					BC22000006 /* ChromiumDevToolsPortWatcherTests.swift */,
+					BC22000007 /* ChromiumLaunchManagerTests.swift */,
 				);
 				path = cmuxTests;
 				sourceTree = "<group>";
@@ -848,6 +869,10 @@
 				A5007420 /* BrowserPopupWindowController.swift in Sources */,
 				A5007422 /* BrowserWebAuthnSupport.swift in Sources */,
 				A5001420 /* MarkdownPanel.swift in Sources */,
+				BC11000001 /* ChromiumFileSystem.swift in Sources */,
+				BC11000002 /* ChromiumBinaryLocator.swift in Sources */,
+				BC11000003 /* ChromiumDevToolsPortWatcher.swift in Sources */,
+				BC11000004 /* ChromiumLaunchManager.swift in Sources */,
 				A5001421 /* MarkdownPanelView.swift in Sources */,
 				A5001500 /* CmuxWebView.swift in Sources */,
 				A5001405 /* PanelContentView.swift in Sources */,
@@ -948,6 +973,9 @@
 					C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */,
 					FE002101 /* FileExplorerRootResolverTests.swift in Sources */,
 					FE002102 /* FileExplorerStoreTests.swift in Sources */,
+					BC11000005 /* ChromiumBinaryLocatorTests.swift in Sources */,
+					BC11000006 /* ChromiumDevToolsPortWatcherTests.swift in Sources */,
+					BC11000007 /* ChromiumLaunchManagerTests.swift in Sources */,
 				);
 				runOnlyForDeploymentPostprocessing = 0;
 			};
