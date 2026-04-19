@@ -38,15 +38,16 @@ actor ChromiumCDPClient {
     }
 
     @discardableResult
-    func send(method: String, params: [String: Any]) async throws -> [String: Any] {
+    func send(method: String, params: [String: Any], sessionId: String? = nil) async throws -> [String: Any] {
         guard connected else { throw CDPError.notConnected }
         let id = nextId
         nextId += 1
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "id": id,
             "method": method,
             "params": params,
         ]
+        if let sessionId { payload["sessionId"] = sessionId }
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
 
         return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<[String: Any], Error>) in
@@ -120,5 +121,49 @@ extension ChromiumCDPClient {
             }
         }
         return nil
+    }
+
+    /// Attach a flattened session to a target. Required before sending
+    /// Page.* / Runtime.* commands against a specific tab via the
+    /// browser-level connection.
+    func targetAttach(targetId: String) async throws -> String {
+        let result = try await send(method: "Target.attachToTarget", params: [
+            "targetId": targetId,
+            "flatten": true,
+        ])
+        guard let sessionId = result["sessionId"] as? String else {
+            throw CDPError.malformedResponse("Target.attachToTarget missing sessionId")
+        }
+        return sessionId
+    }
+
+    /// Attach (creating a session if needed) and issue Page.navigate.
+    /// Returns the page target id + attached sessionId for reuse.
+    @discardableResult
+    func pageNavigate(targetId: String, sessionId: String? = nil, url: String) async throws -> (targetId: String, sessionId: String) {
+        let sid: String
+        if let sessionId { sid = sessionId } else { sid = try await targetAttach(targetId: targetId) }
+        _ = try await send(method: "Page.navigate", params: ["url": url], sessionId: sid)
+        return (targetId, sid)
+    }
+
+    func pageReload(sessionId: String) async throws {
+        _ = try await send(method: "Page.reload", params: [:], sessionId: sessionId)
+    }
+
+    /// CDP's Page domain has no back/forward convenience methods across
+    /// versions; use Runtime.evaluate to drive window.history instead.
+    func pageGoBack(sessionId: String) async throws {
+        _ = try await send(method: "Runtime.evaluate", params: [
+            "expression": "history.back()",
+            "awaitPromise": false,
+        ], sessionId: sessionId)
+    }
+
+    func pageGoForward(sessionId: String) async throws {
+        _ = try await send(method: "Runtime.evaluate", params: [
+            "expression": "history.forward()",
+            "awaitPromise": false,
+        ], sessionId: sessionId)
     }
 }

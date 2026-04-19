@@ -10,28 +10,13 @@ struct BrowserCDPPanelView: View {
     let isFocused: Bool
     let isVisibleInUI: Bool
     @State private var captureContentSize: CGSize = .zero
+    @State private var addressFieldText: String = ""
 
     var body: some View {
-        ZStack {
-            if panel.captureMode, #available(macOS 12.3, *), let stream = panel.captureStream {
-                ChromiumCaptureView(
-                    sampleBufferStream: stream,
-                    inputRouter: panel.inputRouter,
-                    contentSize: $captureContentSize
-                )
-                .overlay(alignment: .topTrailing) {
-                    Button(String(
-                        localized: "browserCDP.panel.disableCapture",
-                        defaultValue: "Switch back to park mode"
-                    )) {
-                        panel.setCaptureMode(false)
-                    }
-                    .controlSize(.small)
-                    .padding(6)
-                }
-            } else {
-                parkPlaceholder
-            }
+        VStack(spacing: 0) {
+            addressBar
+            Divider()
+            content
         }
         .overlay(
             CDPPanelFrameObserver(
@@ -48,6 +33,70 @@ struct BrowserCDPPanelView: View {
             panel.setVisible(newValue)
         }
         .onAppear { panel.setVisible(isVisibleInUI) }
+    }
+
+    @ViewBuilder private var addressBar: some View {
+        HStack(spacing: 6) {
+            Button(action: { panel.goBack() }) {
+                Image(systemName: "chevron.backward")
+            }
+            .buttonStyle(.borderless)
+            .disabled(panel.endpoint == nil)
+
+            Button(action: { panel.goForward() }) {
+                Image(systemName: "chevron.forward")
+            }
+            .buttonStyle(.borderless)
+            .disabled(panel.endpoint == nil)
+
+            Button(action: { panel.reload() }) {
+                Image(systemName: "arrow.clockwise")
+            }
+            .buttonStyle(.borderless)
+            .disabled(panel.endpoint == nil)
+
+            TextField("example.com / https://… / search…", text: $addressFieldText)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit {
+                    let s = addressFieldText.trimmingCharacters(in: .whitespaces)
+                    guard !s.isEmpty else { return }
+                    panel.navigate(s)
+                }
+
+            if #available(macOS 12.3, *), panel.endpoint != nil {
+                Button(panel.captureMode
+                       ? String(localized: "browserCDP.panel.disableCapture",
+                                defaultValue: "Park")
+                       : String(localized: "browserCDP.panel.enableCapture",
+                                defaultValue: "Capture")) {
+                    panel.setCaptureMode(!panel.captureMode)
+                }
+                .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .onChange(of: panel.currentURL) { newValue in
+            // Keep the field in sync with programmatic navigation.
+            if addressFieldText != newValue { addressFieldText = newValue }
+        }
+        .onAppear {
+            if addressFieldText.isEmpty { addressFieldText = panel.currentURL }
+        }
+    }
+
+    @ViewBuilder private var content: some View {
+        ZStack {
+            if panel.captureMode, #available(macOS 12.3, *), let stream = panel.captureStream {
+                ChromiumCaptureView(
+                    sampleBufferStream: stream,
+                    inputRouter: panel.inputRouter,
+                    contentSize: $captureContentSize
+                )
+            } else {
+                parkPlaceholder
+            }
+        }
     }
 
     @ViewBuilder private var parkPlaceholder: some View {
@@ -85,15 +134,8 @@ struct BrowserCDPPanelView: View {
                         .controlSize(.small)
                         .keyboardShortcut(.defaultAction)
                     }
-                    if #available(macOS 12.3, *), panel.endpoint != nil {
-                        Button(String(
-                            localized: "browserCDP.panel.enableCapture",
-                            defaultValue: "Enable pixel capture (experimental)"
-                        )) {
-                            panel.setCaptureMode(true)
-                        }
-                        .controlSize(.small)
-                    }
+                    // The Capture/Park toggle lives in the address bar above
+                    // so it is always reachable regardless of mode.
                 }
                 .padding()
             )

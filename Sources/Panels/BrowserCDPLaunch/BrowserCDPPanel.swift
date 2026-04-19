@@ -31,10 +31,17 @@ final class BrowserCDPPanel: Panel, ObservableObject {
         defaultValue: "Launching Chromium…"
     )
 
+    /// The current navigation URL, kept in sync when the user issues
+    /// `navigate(_:)`. Serves as the initial text for the address bar
+    /// in the panel view.
+    @Published var currentURL: String = "about:blank"
+
     private let manager: ChromiumLaunchManager
     private var client: ChromiumCDPClient?
     private var axObserver: ChromiumAXObserver?
     private var cachedWindowId: Int?
+    private var cachedPageTargetId: String?
+    private var cachedPageSessionId: String?
     private var pendingBoundsPush: DispatchWorkItem?
     private var isClosed = false
     /// Remembered even while the CDP client is still connecting, so we can
@@ -114,6 +121,89 @@ final class BrowserCDPPanel: Panel, ObservableObject {
         if let existingClient {
             Task<Void, Never> { await existingClient.close() }
         }
+    }
+
+    // MARK: - Navigation
+
+    /// Navigate the panel's Chromium page to `url`. Resolves bare hostnames
+    /// (e.g. `example.com`) to `https://example.com` for convenience.
+    func navigate(_ raw: String) {
+        guard let cdp = client else { return }
+        let normalized = Self.normalizeURL(raw)
+        currentURL = normalized
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let (tid, sid) = try await self.ensurePageSession(cdp: cdp)
+                _ = try await cdp.pageNavigate(targetId: tid, sessionId: sid, url: normalized)
+            } catch {
+                #if DEBUG
+                dlog("browserCDP: navigate failed: \(error)")
+                #endif
+            }
+        }
+    }
+
+    func reload() {
+        guard let cdp = client else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let (_, sid) = try await self.ensurePageSession(cdp: cdp)
+                try await cdp.pageReload(sessionId: sid)
+            } catch {}
+        }
+    }
+
+    func goBack() {
+        guard let cdp = client else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let (_, sid) = try await self.ensurePageSession(cdp: cdp)
+                try await cdp.pageGoBack(sessionId: sid)
+            } catch {}
+        }
+    }
+
+    func goForward() {
+        guard let cdp = client else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let (_, sid) = try await self.ensurePageSession(cdp: cdp)
+                try await cdp.pageGoForward(sessionId: sid)
+            } catch {}
+        }
+    }
+
+    private func ensurePageSession(cdp: ChromiumCDPClient) async throws -> (String, String) {
+        if let tid = cachedPageTargetId, let sid = cachedPageSessionId {
+            return (tid, sid)
+        }
+        guard let tid = try await cdp.firstPageTargetId() else {
+            throw CDPError.malformedResponse("no page target available")
+        }
+        let sid = try await cdp.targetAttach(targetId: tid)
+        cachedPageTargetId = tid
+        cachedPageSessionId = sid
+        return (tid, sid)
+    }
+
+    private static func normalizeURL(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "about:blank" }
+        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") ||
+           trimmed.hasPrefix("file://") || trimmed.hasPrefix("about:") ||
+           trimmed.hasPrefix("chrome://") || trimmed.hasPrefix("data:") {
+            return trimmed
+        }
+        // Hostname shortcut: "example.com" → https, "text with spaces" → google search.
+        if trimmed.contains(" ") || !trimmed.contains(".") {
+            let q = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? trimmed
+            return "https://www.google.com/search?q=\(q)"
+        }
+        return "https://\(trimmed)"
     }
 
     /// Opt-in capture mode: switch from park (Chromium as its own NSWindow)
