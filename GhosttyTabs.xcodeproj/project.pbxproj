@@ -59,6 +59,7 @@
 		BC1100000F /* BrowserCDPSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC2200000F /* BrowserCDPSocketCommands.swift */; };
 		BC11000012 /* ChromiumCDPInputRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000012 /* ChromiumCDPInputRouter.swift */; };
 		BC11000013 /* ChromiumCDPInputRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000013 /* ChromiumCDPInputRouterTests.swift */; };
+		BC11000016 /* ChromiumKeyCodeTables.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000016 /* ChromiumKeyCodeTables.swift */; };
 		BC11000014 /* ChromiumScreencastSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000014 /* ChromiumScreencastSession.swift */; };
 		BC11000015 /* ChromiumScreencastView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000015 /* ChromiumScreencastView.swift */; };
 		A5001421 /* MarkdownPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001419 /* MarkdownPanelView.swift */; };
@@ -288,6 +289,7 @@
 		BC2200000D /* BrowserCDPPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/BrowserCDPPanelView.swift; sourceTree = "<group>"; };
 		BC2200000F /* BrowserCDPSocketCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/BrowserCDPSocketCommands.swift; sourceTree = "<group>"; };
 		BC22000012 /* ChromiumCDPInputRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/ChromiumCDPInputRouter.swift; sourceTree = "<group>"; };
+		BC22000016 /* ChromiumKeyCodeTables.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/ChromiumKeyCodeTables.swift; sourceTree = "<group>"; };
 		BC22000013 /* ChromiumCDPInputRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromiumCDPInputRouterTests.swift; sourceTree = "<group>"; };
 		BC22000014 /* ChromiumScreencastSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/ChromiumScreencastSession.swift; sourceTree = "<group>"; };
 		BC22000015 /* ChromiumScreencastView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/ChromiumScreencastView.swift; sourceTree = "<group>"; };
@@ -560,6 +562,7 @@
 				BC2200000D /* BrowserCDPPanelView.swift */,
 				BC2200000F /* BrowserCDPSocketCommands.swift */,
 				BC22000012 /* ChromiumCDPInputRouter.swift */,
+				BC22000016 /* ChromiumKeyCodeTables.swift */,
 				BC22000014 /* ChromiumScreencastSession.swift */,
 				BC22000015 /* ChromiumScreencastView.swift */,
 				A5001415 /* PanelContentView.swift */,
@@ -909,6 +912,7 @@
 				BC1100000D /* BrowserCDPPanelView.swift in Sources */,
 				BC1100000F /* BrowserCDPSocketCommands.swift in Sources */,
 				BC11000012 /* ChromiumCDPInputRouter.swift in Sources */,
+				BC11000016 /* ChromiumKeyCodeTables.swift in Sources */,
 				BC11000014 /* ChromiumScreencastSession.swift in Sources */,
 				BC11000015 /* ChromiumScreencastView.swift in Sources */,
 				A5001421 /* MarkdownPanelView.swift in Sources */,
