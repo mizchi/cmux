@@ -118,11 +118,12 @@ enum BrowserCDPDebugLauncher {
             queue: .main
         ) { _ in
             MainActor.assumeIsolated {
-                Task { @MainActor in
-                    if let c = client { await c.close() }
-                    client = nil
-                    manager?.terminate()
-                    manager = nil
+                let existingClient = client
+                client = nil
+                manager?.terminate()
+                manager = nil
+                if let existingClient {
+                    Task<Void, Never> { await existingClient.close() }
                 }
             }
         }
