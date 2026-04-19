@@ -508,6 +508,9 @@ struct cmuxApp: App {
                     Button("Move Chromium to cmux Window") {
                         Task.detached { await BrowserCDPDebugLauncher.moveChromiumToCmuxMainWindow() }
                     }
+                    Button("Toggle Chromium Auto-Follow") {
+                        BrowserCDPDebugLauncher.toggleAutoFollow()
+                    }
                     Button("Menu Bar Extra Debug…") {
                         MenuBarExtraDebugWindowController.shared.show()
                     }
