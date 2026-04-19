@@ -9327,6 +9327,57 @@ final class Workspace: Identifiable, ObservableObject {
         return markdownPanel
     }
 
+    /// Phase 2: Create a BrowserCDPPanel that launches a Chromium subprocess
+    /// with --remote-debugging-port and drives its screen rect via CDP
+    /// Browser.setWindowBounds. Chromium remains its own NSWindow.
+    func newBrowserCDPSurface(
+        inPane paneId: PaneID,
+        focus: Bool? = nil
+    ) -> BrowserCDPPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let cdpPanel = BrowserCDPPanel()
+        panels[cdpPanel.id] = cdpPanel
+        panelTitles[cdpPanel.id] = cdpPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: cdpPanel.displayTitle,
+            icon: cdpPanel.displayIcon,
+            kind: "browser-cdp",
+            isDirty: false,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: cdpPanel.id)
+            panelTitles.removeValue(forKey: cdpPanel.id)
+            cdpPanel.close()
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = cdpPanel.id
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: cdpPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        return cdpPanel
+    }
+
+    /// Accessor for BrowserCDP panels by ID.
+    func browserCDPPanel(for panelId: UUID) -> BrowserCDPPanel? {
+        panels[panelId] as? BrowserCDPPanel
+    }
+
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
     /// Called before the workspace is removed from TabManager to ensure child
     /// processes receive SIGHUP even if ARC deallocation is delayed.
