@@ -120,6 +120,42 @@ final class BrowserCDPPanel: Panel, ObservableObject {
 
     // MARK: - View integration
 
+    /// Called by the view when its visibility changes (tab switch, window
+    /// hide). Minimize Chromium when going offscreen, restore on return.
+    func setVisible(_ visible: Bool) {
+        guard !isClosed, let cdp = client else { return }
+        Task<Void, Never> { [weak self] in
+            guard let self else { return }
+            let state = visible ? "normal" : "minimized"
+            do {
+                let windowId = try await self.resolveWindowId(with: cdp)
+                _ = try await cdp.send(method: "Browser.setWindowBounds", params: [
+                    "windowId": windowId,
+                    "bounds": ["windowState": state],
+                ])
+                // On restore, immediately re-assert the last rect; minimize
+                // can shuffle the window off the cmux panel.
+                if visible, let rect = await self.readLastRect() {
+                    self.pushBounds(rect)
+                }
+            } catch {
+                // Transient; ignore.
+            }
+        }
+    }
+
+    private func readLastRect() async -> CGRect? { lastRequestedRect }
+
+    private func resolveWindowId(with cdp: ChromiumCDPClient) async throws -> Int {
+        if let cached = cachedWindowId { return cached }
+        guard let targetId = try await cdp.firstPageTargetId() else {
+            throw CDPError.malformedResponse("no page target")
+        }
+        let windowId = try await cdp.browserGetWindowForTarget(targetId: targetId)
+        cachedWindowId = windowId
+        return windowId
+    }
+
     /// Called by the view when its on-screen rect changes. Top-origin screen
     /// coordinates (CDP convention). The rect is remembered even when the
     /// CDP client is not yet connected; it replays on connect.
@@ -209,14 +245,7 @@ final class BrowserCDPPanel: Panel, ObservableObject {
     private func sendBounds(_ rect: CGRect) async {
         guard let cdp = client, !isClosed else { return }
         do {
-            let windowId: Int
-            if let cached = cachedWindowId {
-                windowId = cached
-            } else {
-                guard let targetId = try await cdp.firstPageTargetId() else { return }
-                windowId = try await cdp.browserGetWindowForTarget(targetId: targetId)
-                cachedWindowId = windowId
-            }
+            let windowId = try await resolveWindowId(with: cdp)
             try await cdp.browserSetWindowBounds(
                 windowId: windowId,
                 bounds: .init(

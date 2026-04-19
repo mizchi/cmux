@@ -52,6 +52,10 @@ struct BrowserCDPPanelView: View {
             })
             .allowsHitTesting(false)
         )
+        .onChange(of: isVisibleInUI) { newValue in
+            panel.setVisible(newValue)
+        }
+        .onAppear { panel.setVisible(isVisibleInUI) }
     }
 }
 
