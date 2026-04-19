@@ -27,6 +27,9 @@ final class BrowserCDPPanel: Panel, ObservableObject {
     private var cachedWindowId: Int?
     private var pendingBoundsPush: DispatchWorkItem?
     private var isClosed = false
+    /// Remembered even while the CDP client is still connecting, so we can
+    /// replay the first known rect as soon as the client comes up.
+    private var lastRequestedRect: CGRect?
     private static let debounceMs: Int = 16
 
     init() {
@@ -71,9 +74,12 @@ final class BrowserCDPPanel: Panel, ObservableObject {
     // MARK: - View integration
 
     /// Called by the view when its on-screen rect changes. Top-origin screen
-    /// coordinates (CDP convention).
+    /// coordinates (CDP convention). The rect is remembered even when the
+    /// CDP client is not yet connected; it replays on connect.
     func pushBounds(_ rect: CGRect) {
-        guard !isClosed, client != nil else { return }
+        guard !isClosed else { return }
+        lastRequestedRect = rect
+        guard client != nil else { return }
         pendingBoundsPush?.cancel()
         let block: @Sendable () -> Void = { [weak self] in
             guard let self else { return }
@@ -104,6 +110,9 @@ final class BrowserCDPPanel: Panel, ObservableObject {
                     self.client = cdp
                     do {
                         try await cdp.connect()
+                        if let pending = self.lastRequestedRect {
+                            self.pushBounds(pending)
+                        }
                     } catch {
                         self.statusMessage = "CDP connect failed: \(error)"
                     }
