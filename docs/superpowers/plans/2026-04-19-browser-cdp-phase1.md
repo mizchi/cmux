@@ -676,14 +676,17 @@ final class ChromiumLaunchManager {
     private var watcher: ChromiumDevToolsPortWatcher?
     private(set) var userDataDir: URL?
 
-    // Test-only accessor
+    #if DEBUG
     var userDataDirForTesting: URL? { userDataDir }
+    #endif
 
     init(binary: ChromiumBinary) {
         self.binary = binary
     }
 
     func launch(initialURL: URL?, timeout: TimeInterval, completion: @escaping (Result<ChromiumDevToolsEndpoint, Error>) -> Void) {
+        precondition(process == nil, "ChromiumLaunchManager.launch called twice; call terminate() first")
+
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cmux-chromium-\(UUID().uuidString)")
         do {
@@ -729,14 +732,26 @@ final class ChromiumLaunchManager {
     }
 
     func terminate() {
-        if let proc = process, proc.isRunning {
-            proc.terminate()
-            proc.waitUntilExit()
-        }
-        process = nil
+        // Move ownership of the subprocess + user-data-dir out of the instance
+        // synchronously, then do the slow kill+wait off the calling thread.
+        // Chromium can take seconds to unwind; the app-terminate handler runs
+        // this on main at quit time, so we must not block the main run loop.
+        let proc = self.process
+        self.process = nil
         watcher?.cancel()
         watcher = nil
-        cleanupUserDataDir()
+        let dirToRemove = self.userDataDir
+        self.userDataDir = nil
+
+        DispatchQueue.global(qos: .utility).async {
+            if let proc, proc.isRunning {
+                proc.terminate()
+                proc.waitUntilExit()
+            }
+            if let dirToRemove {
+                try? FileManager.default.removeItem(at: dirToRemove)
+            }
+        }
     }
 
     private func cleanupUserDataDir() {
