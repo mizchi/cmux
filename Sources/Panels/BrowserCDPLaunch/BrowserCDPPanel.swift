@@ -151,7 +151,11 @@ final class BrowserCDPPanel: Panel, ObservableObject {
             do {
                 let (_, sid) = try await self.ensurePageSession(cdp: cdp)
                 try await cdp.pageReload(sessionId: sid)
-            } catch {}
+            } catch {
+                #if DEBUG
+                dlog("browserCDP: reload failed: \(error)")
+                #endif
+            }
         }
     }
 
@@ -162,7 +166,11 @@ final class BrowserCDPPanel: Panel, ObservableObject {
             do {
                 let (_, sid) = try await self.ensurePageSession(cdp: cdp)
                 try await cdp.pageGoBack(sessionId: sid)
-            } catch {}
+            } catch {
+                #if DEBUG
+                dlog("browserCDP: goBack failed: \(error)")
+                #endif
+            }
         }
     }
 
@@ -173,7 +181,11 @@ final class BrowserCDPPanel: Panel, ObservableObject {
             do {
                 let (_, sid) = try await self.ensurePageSession(cdp: cdp)
                 try await cdp.pageGoForward(sessionId: sid)
-            } catch {}
+            } catch {
+                #if DEBUG
+                dlog("browserCDP: goForward failed: \(error)")
+                #endif
+            }
         }
     }
 
@@ -222,6 +234,7 @@ final class BrowserCDPPanel: Panel, ObservableObject {
                         self.captureStreamStorage = stream
                         self.inputRouter = ChromiumCDPInputRouter(client: cdp)
                         self.captureMode = true
+                        await self.stashChromiumOffScreen()
                     } catch {
                         #if DEBUG
                         dlog("browserCDP: capture start failed: \(error)")
@@ -236,6 +249,47 @@ final class BrowserCDPPanel: Panel, ObservableObject {
             captureStreamStorage = nil
             inputRouter = nil
             captureMode = false
+            // Return Chromium to the panel's on-screen rect (park mode).
+            if let rect = lastRequestedRect {
+                pushBounds(rect)
+            }
+        }
+    }
+
+    /// Try to enter capture mode automatically if Screen Recording
+    /// permission is already granted. Called after the CDP client
+    /// connects. Silent no-op if permission hasn't been granted —
+    /// the user explicitly clicks "Capture" to trigger the prompt.
+    private func tryAutoEnableCapture() {
+        guard !captureMode, endpoint != nil else { return }
+        if #available(macOS 12.3, *) {
+            guard CGPreflightScreenCaptureAccess() else { return }
+            setCaptureMode(true)
+        }
+    }
+
+    /// Move Chromium's OS window far off-screen while capture is active.
+    /// Keeps the window alive (SCStream requires a rendered window even
+    /// if not on any display) but removes it from the user's view so
+    /// only the in-panel capture is visible.
+    private func stashChromiumOffScreen() async {
+        guard let cdp = client else { return }
+        let size = lastRequestedRect?.size ?? CGSize(width: 1024, height: 768)
+        do {
+            let windowId = try await resolveWindowId(with: cdp)
+            try await cdp.browserSetWindowBounds(
+                windowId: windowId,
+                bounds: .init(
+                    left: -30000,
+                    top: -30000,
+                    width: Int(size.width),
+                    height: Int(size.height)
+                )
+            )
+        } catch {
+            #if DEBUG
+            dlog("browserCDP: stash off-screen failed: \(error)")
+            #endif
         }
     }
 
@@ -317,10 +371,14 @@ final class BrowserCDPPanel: Panel, ObservableObject {
     /// Called by the view when its on-screen rect changes. Top-origin screen
     /// coordinates (CDP convention). The rect is remembered even when the
     /// CDP client is not yet connected; it replays on connect.
+    ///
+    /// Skipped when the panel is in capture mode — there, Chromium is
+    /// intentionally stashed off-screen so the user only sees the
+    /// in-panel capture, not the native Chromium window.
     func pushBounds(_ rect: CGRect) {
         guard !isClosed else { return }
         lastRequestedRect = rect
-        guard client != nil else { return }
+        guard client != nil, !captureMode else { return }
         pendingBoundsPush?.cancel()
         let block: @Sendable () -> Void = { [weak self] in
             guard let self else { return }
@@ -364,6 +422,7 @@ final class BrowserCDPPanel: Panel, ObservableObject {
                             self.pushBounds(pending)
                         }
                         self.installAXObserverIfPossible()
+                        self.tryAutoEnableCapture()
                     } catch {
                         self.statusMessage = String(
                             format: String(
