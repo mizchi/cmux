@@ -281,7 +281,11 @@ if [[ -z "$TAG" ]]; then
   exit 1
 fi
 
-"$PWD/scripts/ensure-ghosttykit.sh"
+if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" && -d "$PWD/GhosttyKit.xcframework" ]]; then
+  echo "==> Reusing existing GhosttyKit.xcframework (CMUX_SKIP_ZIG_BUILD=1, skipping ensure-ghosttykit)"
+else
+  "$PWD/scripts/ensure-ghosttykit.sh"
+fi
 
 if should_skip_ghostty_cli_helper_zig_build; then
   if [[ "${CMUX_SKIP_ZIG_BUILD:-}" != "1" ]]; then
@@ -455,7 +459,22 @@ fi
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
 GHOSTTY_HELPER_SRC="$PWD/ghostty/zig-out/bin/ghostty"
 if [[ -d "$PWD/cmuxd" ]]; then
-  (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
+  if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
+    echo "Skipping cmuxd zig build (CMUX_SKIP_ZIG_BUILD=1)"
+    if [[ ! -x "$CMUXD_SRC" ]]; then
+      # Build phase expects a binary to copy; emit a tiny stub so xcodebuild
+      # can complete. The stub logs + exits 1 if ever invoked.
+      mkdir -p "$(dirname "$CMUXD_SRC")"
+      cat > "$CMUXD_SRC" <<'EOF'
+#!/bin/sh
+echo "cmuxd stub (CMUX_SKIP_ZIG_BUILD=1 build)" >&2
+exit 1
+EOF
+      chmod +x "$CMUXD_SRC"
+    fi
+  else
+    (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
+  fi
 fi
 if [[ -d "$PWD/ghostty" ]]; then
   if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
