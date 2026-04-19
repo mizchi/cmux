@@ -14,13 +14,19 @@ final class BrowserCDPPanel: Panel, ObservableObject {
     let id: UUID
     let panelType: PanelType = .browserCDP
 
-    @Published private(set) var displayTitle: String = "Chromium"
+    @Published private(set) var displayTitle: String = String(
+        localized: "browserCDP.panel.tabTitle",
+        defaultValue: "Chromium"
+    )
     var displayIcon: String? { "globe" }
     @Published private(set) var focusFlashToken: Int = 0
 
     /// Current CDP endpoint once the subprocess is up. Nil while launching or on failure.
     @Published private(set) var endpoint: ChromiumDevToolsEndpoint?
-    @Published private(set) var statusMessage: String = "Launching Chromium…"
+    @Published private(set) var statusMessage: String = String(
+        localized: "browserCDP.panel.status.launching",
+        defaultValue: "Launching Chromium…"
+    )
 
     private let manager: ChromiumLaunchManager
     private var client: ChromiumCDPClient?
@@ -56,7 +62,10 @@ final class BrowserCDPPanel: Panel, ObservableObject {
             self.manager = ChromiumLaunchManager(
                 binary: ChromiumBinary(path: "/dev/null", source: .envOverride)
             )
-            self.statusMessage = "Chromium not found. Set CMUX_CHROMIUM_PATH or run `npx playwright install chromium`."
+            self.statusMessage = String(
+                localized: "browserCDP.panel.status.notFound",
+                defaultValue: "Chromium not found. Set CMUX_CHROMIUM_PATH or run `npx playwright install chromium`."
+            )
         }
     }
 
@@ -75,7 +84,10 @@ final class BrowserCDPPanel: Panel, ObservableObject {
         client = nil
         endpoint = nil
         isChromiumExited = true
-        statusMessage = "Chromium exited. Click Relaunch to start a new session."
+        statusMessage = String(
+            localized: "browserCDP.panel.status.exited",
+            defaultValue: "Chromium exited. Click Relaunch to start a new session."
+        )
         if let existingClient {
             Task<Void, Never> { await existingClient.close() }
         }
@@ -180,14 +192,23 @@ final class BrowserCDPPanel: Panel, ObservableObject {
     // MARK: - Private
 
     private func launch() {
-        statusMessage = "Launching Chromium…"
+        statusMessage = String(
+            localized: "browserCDP.panel.status.launching",
+            defaultValue: "Launching Chromium…"
+        )
         manager.launch(initialURL: URL(string: "about:blank"), timeout: 15) { [weak self] result in
             Task { @MainActor [weak self] in
                 guard let self, !self.isClosed else { return }
                 switch result {
                 case .success(let endpoint):
                     self.endpoint = endpoint
-                    self.statusMessage = "Connected: \(endpoint.webSocketURL.absoluteString)"
+                    self.statusMessage = String(
+                        format: String(
+                            localized: "browserCDP.panel.status.connected",
+                            defaultValue: "Connected: %@"
+                        ),
+                        endpoint.webSocketURL.absoluteString
+                    )
                     let transport = CDPWebSocketTransport(url: endpoint.webSocketURL)
                     let cdp = ChromiumCDPClient(transport: transport)
                     self.client = cdp
@@ -198,10 +219,22 @@ final class BrowserCDPPanel: Panel, ObservableObject {
                         }
                         self.installAXObserverIfPossible()
                     } catch {
-                        self.statusMessage = "CDP connect failed: \(error)"
+                        self.statusMessage = String(
+                            format: String(
+                                localized: "browserCDP.panel.status.connectFailed",
+                                defaultValue: "CDP connect failed: %@"
+                            ),
+                            "\(error)"
+                        )
                     }
                 case .failure(let error):
-                    self.statusMessage = "Launch failed: \(error)"
+                    self.statusMessage = String(
+                        format: String(
+                            localized: "browserCDP.panel.status.launchFailed",
+                            defaultValue: "Launch failed: %@"
+                        ),
+                        "\(error)"
+                    )
                 }
             }
         }

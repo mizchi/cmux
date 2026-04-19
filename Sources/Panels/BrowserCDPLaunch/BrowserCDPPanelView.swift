@@ -20,7 +20,8 @@ struct BrowserCDPPanelView: View {
                 ))
 
             VStack(spacing: 12) {
-                Text("Chromium is rendered in its own OS window.")
+                Text(String(localized: "browserCDP.panel.bodyText",
+                            defaultValue: "Chromium is rendered in its own OS window."))
                     .font(.headline)
                     .foregroundStyle(.primary)
                 Text(panel.statusMessage)
@@ -29,7 +30,8 @@ struct BrowserCDPPanelView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 20)
                 if let endpoint = panel.endpoint {
-                    Button("Copy CDP URL") {
+                    Button(String(localized: "browserCDP.panel.copyURL",
+                                  defaultValue: "Copy CDP URL")) {
                         let pb = NSPasteboard.general
                         pb.clearContents()
                         pb.setString(endpoint.webSocketURL.absoluteString, forType: .string)
@@ -37,7 +39,8 @@ struct BrowserCDPPanelView: View {
                     .controlSize(.small)
                 }
                 if panel.isChromiumExited {
-                    Button("Relaunch Chromium") {
+                    Button(String(localized: "browserCDP.panel.relaunch",
+                                  defaultValue: "Relaunch Chromium")) {
                         panel.relaunch()
                     }
                     .controlSize(.small)
