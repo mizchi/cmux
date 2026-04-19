@@ -1,11 +1,19 @@
 # Playwright headful against cmux's Chromium
 
-> Phase 3 status: cmux opens a native panel (`BrowserCDPPanel`) that
+> Phase 3b status: cmux opens a native panel (`BrowserCDPPanel`) that
 > launches its own Chromium subprocess and drives its screen rect via
-> CDP `Browser.setWindowBounds`. Chromium remains a real NSWindow in
-> its own process — cmux does not embed pixels — but bounds follow
-> the panel on resize / move, user-drags snap back via AXObserver, and
-> visibility tracks tab switch + window miniaturize + active Space.
+> CDP `Browser.setWindowBounds`. Two rendering modes are available:
+>
+> - **Park** (default): Chromium stays a real NSWindow in its own
+>   process; bounds follow the panel on resize / move, user-drags snap
+>   back via AXObserver, visibility tracks tab switch + window
+>   miniaturize + active Space.
+> - **Capture** (experimental, macOS 12.3+, requires Screen Recording
+>   permission): cmux mirrors Chromium's window via ScreenCaptureKit
+>   and routes mouse + key input through CDP `Input.dispatch*`. Lets
+>   the panel render Chromium pixels directly for scenarios where the
+>   native window is occluded or on a different Space.
+>
 > A v2 socket API and `cmux browser cdp-*` CLI surface the panel
 > lifecycle and CDP URL so external scripts can `connectOverCDP`
 > without clicking through the UI.
@@ -126,6 +134,28 @@ await browser.close();
 `chromium_headless_shell-*` builds are skipped — they have no window and
 can't be driven via CDP for headful tests.
 
+## Capture mode (experimental)
+
+The park placeholder shows an **Enable pixel capture (experimental)**
+button once the CDP client is connected. Clicking it starts an
+`SCStream` against the Chromium window, renders frames into the panel,
+and routes mouse / keyboard events through CDP. A **Switch back to
+park mode** overlay is available in capture view.
+
+Capture mode requires:
+
+- macOS 12.3 (Monterey) or later.
+- Screen Recording permission for cmux. On macOS 15 Sequoia the system
+  re-prompts weekly.
+
+Known gaps:
+
+- IME composition (CJK) is not yet routed; use park mode for typing.
+- Drag-and-drop between the captured area and other apps is not
+  supported.
+- Chromium still has its own dock tile and can be activated directly
+  from the Dock; the capture view does not intercept that path.
+
 ## Known limitations
 
 - Chromium opens a dock tile of its own. We do not (and cannot, without
@@ -136,4 +166,5 @@ can't be driven via CDP for headful tests.
 - `browser.cdp.launch` starts Chromium with `--remote-debugging-port=0`
   on 127.0.0.1. A localhost-only port is still reachable by any local
   process; use the `--user-data-dir`-scoped CDP URL as a session token.
-  `--remote-debugging-pipe` is deferred work.
+  `--remote-debugging-pipe` is deferred because it's incompatible with
+  Playwright's external `connectOverCDP(url)` API.
