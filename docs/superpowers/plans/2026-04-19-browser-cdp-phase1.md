@@ -434,10 +434,12 @@ final class ChromiumDevToolsPortWatcher {
     enum WatcherError: Error, CustomStringConvertible {
         case timedOut
         case malformedFile(String)
+        case cannotWatchDirectory(String)
         var description: String {
             switch self {
             case .timedOut: return "Timed out waiting for DevToolsActivePort"
             case .malformedFile(let raw): return "DevToolsActivePort malformed: \(raw)"
+            case .cannotWatchDirectory(let path): return "Cannot watch user-data-dir: \(path)"
             }
         }
     }
@@ -450,6 +452,11 @@ final class ChromiumDevToolsPortWatcher {
 
     init(userDataDir: URL) {
         self.userDataDir = userDataDir
+    }
+
+    deinit {
+        dispatchSource?.cancel()
+        timeoutSource?.cancel()
     }
 
     func start(timeout: TimeInterval, completion: @escaping (Result<ChromiumDevToolsEndpoint, Error>) -> Void) {
@@ -471,7 +478,7 @@ final class ChromiumDevToolsPortWatcher {
     private func installDirectoryWatch(file: URL, timeout: TimeInterval, completion: @escaping (Result<ChromiumDevToolsEndpoint, Error>) -> Void) {
         let fd = open(userDataDir.path, O_EVTONLY)
         if fd < 0 {
-            fire(.failure(WatcherError.malformedFile("cannot watch \(userDataDir.path)")), completion: completion)
+            fire(.failure(WatcherError.cannotWatchDirectory(userDataDir.path)), completion: completion)
             return
         }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: .write, queue: queue)
@@ -482,6 +489,11 @@ final class ChromiumDevToolsPortWatcher {
         source.setCancelHandler { close(fd) }
         source.resume()
         dispatchSource = source
+
+        // Close the start-time race: the file may have appeared between the
+        // initial tryRead in start() and source.resume(). Re-read now; handlers
+        // are serialized on `queue`, so this is race-free.
+        if tryRead(file: file, completion: completion) { return }
 
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + timeout)
@@ -499,7 +511,11 @@ final class ChromiumDevToolsPortWatcher {
         guard lines.count >= 2,
               let port = UInt16(lines[0]),
               lines[1].hasPrefix("/devtools/") else {
-            // Might be a partial write; wait for the next event unless clearly invalid.
+            // Possible states:
+            //   empty / 0 lines                      → brand-new file, keep waiting
+            //   1 line, integer                      → first line flushed, second not yet, keep waiting
+            //   1 line, non-integer                  → not DevToolsActivePort format, fail immediately
+            //   2+ lines but port or path invalid    → keep waiting defensively
             if lines.count == 1 && UInt16(lines[0]) == nil {
                 fire(.failure(WatcherError.malformedFile(raw)), completion: completion)
                 return true
