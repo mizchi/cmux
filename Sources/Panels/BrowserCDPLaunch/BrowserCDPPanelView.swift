@@ -9,11 +9,26 @@ struct BrowserCDPPanelView: View {
     @ObservedObject var panel: BrowserCDPPanel
     let isFocused: Bool
     let isVisibleInUI: Bool
+    @State private var captureContentSize: CGSize = .zero
 
     var body: some View {
         ZStack {
             if panel.captureMode, #available(macOS 12.3, *), let stream = panel.captureStream {
-                ChromiumCaptureView(sampleBufferStream: stream)
+                ChromiumCaptureView(
+                    sampleBufferStream: stream,
+                    inputRouter: panel.inputRouter,
+                    contentSize: $captureContentSize
+                )
+                .overlay(alignment: .topTrailing) {
+                    Button(String(
+                        localized: "browserCDP.panel.disableCapture",
+                        defaultValue: "Switch back to park mode"
+                    )) {
+                        panel.setCaptureMode(false)
+                    }
+                    .controlSize(.small)
+                    .padding(6)
+                }
             } else {
                 parkPlaceholder
             }
