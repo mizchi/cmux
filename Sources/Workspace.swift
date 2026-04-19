@@ -451,6 +451,7 @@ extension Workspace {
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
+        let browserCDPSnapshot: SessionBrowserCDPPanelSnapshot?
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -474,6 +475,7 @@ extension Workspace {
             )
             browserSnapshot = nil
             markdownSnapshot = nil
+            browserCDPSnapshot = nil
         case .browser:
             guard let browserPanel = panel as? BrowserPanel else { return nil }
             terminalSnapshot = nil
@@ -488,14 +490,19 @@ extension Workspace {
                 forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings
             )
             markdownSnapshot = nil
+            browserCDPSnapshot = nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
+            browserCDPSnapshot = nil
         case .browserCDP:
-            // Phase 2: BrowserCDP panels are Debug-only and not persisted across sessions yet.
-            return nil
+            guard panel is BrowserCDPPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            browserCDPSnapshot = SessionBrowserCDPPanelSnapshot(initialURL: nil)
         }
 
         return SessionPanelSnapshot(
@@ -511,7 +518,8 @@ extension Workspace {
             ttyName: ttyName,
             terminal: terminalSnapshot,
             browser: browserSnapshot,
-            markdown: markdownSnapshot
+            markdown: markdownSnapshot,
+            browserCDP: browserCDPSnapshot
         )
     }
 
@@ -687,8 +695,14 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: markdownPanel.id)
             return markdownPanel.id
         case .browserCDP:
-            // Phase 2: BrowserCDP panels are not restored from session snapshots yet.
-            return nil
+            // BrowserCDP panels restore by spawning a fresh Chromium subprocess.
+            // No subprocess state carries across app launches; Chromium's
+            // user-data-dir is scoped to the panel lifetime.
+            guard let cdpPanel = newBrowserCDPSurface(inPane: paneId, focus: false) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: cdpPanel.id)
+            return cdpPanel.id
         }
     }
 
