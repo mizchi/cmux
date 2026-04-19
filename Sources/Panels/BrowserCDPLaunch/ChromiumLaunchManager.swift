@@ -70,8 +70,18 @@ final class ChromiumLaunchManager {
         stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
             _ = handle.availableData
         }
-        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-            _ = handle.availableData
+        // Write Chromium's stderr to /tmp for debugging the CDP handshake.
+        let stderrLog = "/tmp/cmux-chromium-stderr.log"
+        _ = FileManager.default.createFile(atPath: stderrLog, contents: nil, attributes: nil)
+        if let fh = try? FileHandle(forWritingTo: URL(fileURLWithPath: stderrLog)) {
+            stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if !data.isEmpty { try? fh.write(contentsOf: data) }
+            }
+        } else {
+            stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+                _ = handle.availableData
+            }
         }
 
         proc.terminationHandler = { [weak self] _ in
