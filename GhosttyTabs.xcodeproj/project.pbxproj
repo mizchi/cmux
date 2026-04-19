@@ -61,6 +61,7 @@
 		BC1100000F /* BrowserCDPSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC2200000F /* BrowserCDPSocketCommands.swift */; };
 		BC11000010 /* ChromiumScreenCaptureStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000010 /* ChromiumScreenCaptureStream.swift */; };
 		BC11000011 /* ChromiumCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000011 /* ChromiumCaptureView.swift */; };
+		BC11000012 /* ChromiumCDPInputRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22000012 /* ChromiumCDPInputRouter.swift */; };
 		A5001421 /* MarkdownPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001419 /* MarkdownPanelView.swift */; };
 		A5001290 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A5001291 /* MarkdownUI */; };
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
@@ -291,6 +292,7 @@
 		BC2200000F /* BrowserCDPSocketCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/BrowserCDPSocketCommands.swift; sourceTree = "<group>"; };
 		BC22000010 /* ChromiumScreenCaptureStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/ChromiumScreenCaptureStream.swift; sourceTree = "<group>"; };
 		BC22000011 /* ChromiumCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/ChromiumCaptureView.swift; sourceTree = "<group>"; };
+		BC22000012 /* ChromiumCDPInputRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserCDPLaunch/ChromiumCDPInputRouter.swift; sourceTree = "<group>"; };
 		A5001419 /* MarkdownPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelView.swift; sourceTree = "<group>"; };
 		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		A5001417 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
@@ -563,6 +565,7 @@
 				BC2200000F /* BrowserCDPSocketCommands.swift */,
 				BC22000010 /* ChromiumScreenCaptureStream.swift */,
 				BC22000011 /* ChromiumCaptureView.swift */,
+				BC22000012 /* ChromiumCDPInputRouter.swift */,
 				A5001415 /* PanelContentView.swift */,
 				A5001211 /* UpdateController.swift */,
 				A5001212 /* UpdateDelegate.swift */,
@@ -912,6 +915,7 @@
 				BC1100000F /* BrowserCDPSocketCommands.swift in Sources */,
 				BC11000010 /* ChromiumScreenCaptureStream.swift in Sources */,
 				BC11000011 /* ChromiumCaptureView.swift in Sources */,
+				BC11000012 /* ChromiumCDPInputRouter.swift in Sources */,
 				A5001421 /* MarkdownPanelView.swift in Sources */,
 				A5001500 /* CmuxWebView.swift in Sources */,
 				A5001405 /* PanelContentView.swift in Sources */,
