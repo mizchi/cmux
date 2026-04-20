@@ -55,6 +55,14 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .browserCDP:
+            if let cdpPanel = panel as? BrowserCDPPanel {
+                BrowserCDPPanelView(
+                    panel: cdpPanel,
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI
+                )
+            }
         }
     }
 }

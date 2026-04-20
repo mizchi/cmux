@@ -451,6 +451,7 @@ extension Workspace {
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
+        let browserCDPSnapshot: SessionBrowserCDPPanelSnapshot?
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -474,6 +475,7 @@ extension Workspace {
             )
             browserSnapshot = nil
             markdownSnapshot = nil
+            browserCDPSnapshot = nil
         case .browser:
             guard let browserPanel = panel as? BrowserPanel else { return nil }
             terminalSnapshot = nil
@@ -488,11 +490,19 @@ extension Workspace {
                 forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings
             )
             markdownSnapshot = nil
+            browserCDPSnapshot = nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
+            browserCDPSnapshot = nil
+        case .browserCDP:
+            guard panel is BrowserCDPPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            browserCDPSnapshot = SessionBrowserCDPPanelSnapshot(initialURL: nil)
         }
 
         return SessionPanelSnapshot(
@@ -508,7 +518,8 @@ extension Workspace {
             ttyName: ttyName,
             terminal: terminalSnapshot,
             browser: browserSnapshot,
-            markdown: markdownSnapshot
+            markdown: markdownSnapshot,
+            browserCDP: browserCDPSnapshot
         )
     }
 
@@ -683,6 +694,15 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: markdownPanel.id)
             return markdownPanel.id
+        case .browserCDP:
+            // BrowserCDP panels restore by spawning a fresh Chromium subprocess.
+            // No subprocess state carries across app launches; Chromium's
+            // user-data-dir is scoped to the panel lifetime.
+            guard let cdpPanel = newBrowserCDPSurface(inPane: paneId, focus: false) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: cdpPanel.id)
+            return cdpPanel.id
         }
     }
 
@@ -7268,6 +7288,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.browser
         case .markdown:
             return SurfaceKind.markdown
+        case .browserCDP:
+            return "browser-cdp"
         }
     }
 
@@ -9317,6 +9339,57 @@ final class Workspace: Identifiable, ObservableObject {
 
         installMarkdownPanelSubscription(markdownPanel)
         return markdownPanel
+    }
+
+    /// Phase 2: Create a BrowserCDPPanel that launches a Chromium subprocess
+    /// with --remote-debugging-port and drives its screen rect via CDP
+    /// Browser.setWindowBounds. Chromium remains its own NSWindow.
+    func newBrowserCDPSurface(
+        inPane paneId: PaneID,
+        focus: Bool? = nil
+    ) -> BrowserCDPPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let cdpPanel = BrowserCDPPanel()
+        panels[cdpPanel.id] = cdpPanel
+        panelTitles[cdpPanel.id] = cdpPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: cdpPanel.displayTitle,
+            icon: cdpPanel.displayIcon,
+            kind: "browser-cdp",
+            isDirty: false,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: cdpPanel.id)
+            panelTitles.removeValue(forKey: cdpPanel.id)
+            cdpPanel.close()
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = cdpPanel.id
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: cdpPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        return cdpPanel
+    }
+
+    /// Accessor for BrowserCDP panels by ID.
+    func browserCDPPanel(for panelId: UUID) -> BrowserCDPPanel? {
+        panels[panelId] as? BrowserCDPPanel
     }
 
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.

@@ -240,6 +240,14 @@ struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
 
+/// Snapshot for a BrowserCDPPanel. Chromium subprocesses don't survive an
+/// app restart, so on restore we just spawn a fresh Chromium. No panel
+/// state to carry — the struct exists so the session file shape stays
+/// stable if future fields are added (initial URL override, etc.).
+struct SessionBrowserCDPPanelSnapshot: Codable, Sendable {
+    var initialURL: String?
+}
+
 struct SessionPanelSnapshot: Codable, Sendable {
     var id: UUID
     var type: PanelType
@@ -254,6 +262,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var terminal: SessionTerminalPanelSnapshot?
     var browser: SessionBrowserPanelSnapshot?
     var markdown: SessionMarkdownPanelSnapshot?
+    var browserCDP: SessionBrowserCDPPanelSnapshot?
 }
 
 enum SessionSplitOrientation: String, Codable, Sendable {

@@ -502,6 +502,9 @@ struct cmuxApp: App {
                     Button("Debug Window Controls…") {
                         DebugWindowControlsWindowController.shared.show()
                     }
+                    Button("New Chromium Panel") {
+                        _ = activeTabManager.newBrowserCDPInFocusedPane()
+                    }
                     Button("Menu Bar Extra Debug…") {
                         MenuBarExtraDebugWindowController.shared.show()
                     }

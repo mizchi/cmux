@@ -6343,6 +6343,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.browser", defaultValue: "Browser")
         case .markdown:
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
+        case .browserCDP:
+            return "Chromium (CDP)"
         }
     }
 
@@ -6354,6 +6356,8 @@ struct ContentView: View {
             return ["browser", "web", "page"]
         case .markdown:
             return ["markdown", "note", "preview"]
+        case .browserCDP:
+            return ["chromium", "cdp", "playwright", "browser"]
         }
     }
 
@@ -6721,6 +6725,20 @@ struct ContentView: View {
                 subtitle: constant(String(localized: "command.newBrowserTab.subtitle", defaultValue: "Tab")),
                 shortcutHint: "⌘⇧L",
                 keywords: ["new", "browser", "tab", "web"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.newBrowserCDPTab",
+                title: constant(String(
+                    localized: "command.newBrowserCDPTab.title",
+                    defaultValue: "New Tab (Chromium / CDP)"
+                )),
+                subtitle: constant(String(
+                    localized: "command.newBrowserCDPTab.subtitle",
+                    defaultValue: "Tab"
+                )),
+                keywords: ["new", "chromium", "cdp", "playwright", "browser", "tab"]
             )
         )
         contributions.append(
@@ -7443,6 +7461,11 @@ struct ContentView: View {
             // is not blocked by the palette visibility guard.
             DispatchQueue.main.async {
                 _ = AppDelegate.shared?.openBrowserAndFocusAddressBar()
+            }
+        }
+        registry.register(commandId: "palette.newBrowserCDPTab") {
+            DispatchQueue.main.async {
+                _ = tabManager.newBrowserCDPInFocusedPane()
             }
         }
         registry.register(commandId: "palette.closeTab") {

@@ -5418,7 +5418,7 @@ struct CMUXCLI {
         var surfaceRaw = surfaceOpt
         var args = argsWithoutSurfaceFlag
 
-        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify"]
+        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "cdp-launch", "cdp-list"]
         if surfaceRaw == nil, let first = args.first {
             if !first.hasPrefix("-") && !verbsWithoutSurface.contains(first.lowercased()) {
                 surfaceRaw = first
@@ -6669,6 +6669,63 @@ struct CMUXCLI {
         if ["input_mouse", "input_keyboard", "input_touch"].contains(subcommand) {
             let sid = try requireSurface()
             let payload = try client.sendV2(method: "browser.\(subcommand)", params: ["surface_id": sid])
+            output(payload, fallback: "OK")
+            return
+        }
+
+        if subcommand == "cdp-launch" {
+            let payload = try client.sendV2(method: "browser.cdp.launch", params: [:])
+            if effectiveJSONOutput {
+                print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+            } else {
+                let sid = formatHandle(payload, kind: "surface", idFormat: effectiveIDFormat) ?? "unknown"
+                let status = (payload["status"] as? String) ?? ""
+                let url = (payload["cdp_url"] as? String) ?? "(launching)"
+                print("OK surface=\(sid) status=\(status) cdp_url=\(url)")
+            }
+            return
+        }
+
+        if subcommand == "cdp-url" {
+            let sid = try requireSurface()
+            let payload = try client.sendV2(method: "browser.cdp.url", params: ["surface_id": sid])
+            if effectiveJSONOutput {
+                print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+            } else if let url = payload["cdp_url"] as? String {
+                // Print only the URL so shell composition is easy:
+                //   node -e '...' "$(cmux browser <surface> cdp-url)"
+                print(url)
+            } else {
+                let status = (payload["status"] as? String) ?? ""
+                FileHandle.standardError.write(Data("not ready (status=\(status))\n".utf8))
+                exit(1)
+            }
+            return
+        }
+
+        if subcommand == "cdp-list" {
+            let payload = try client.sendV2(method: "browser.cdp.list", params: [:])
+            if effectiveJSONOutput {
+                print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                return
+            }
+            let surfaces = (payload["surfaces"] as? [[String: Any]]) ?? []
+            if surfaces.isEmpty {
+                print("No browser-cdp surfaces")
+                return
+            }
+            for s in surfaces {
+                let sid = (s["surface_id"] as? String) ?? "?"
+                let status = (s["status"] as? String) ?? "?"
+                let url = (s["cdp_url"] as? String) ?? "-"
+                print("\(sid)\t\(status)\t\(url)")
+            }
+            return
+        }
+
+        if subcommand == "cdp-close" {
+            let sid = try requireSurface()
+            let payload = try client.sendV2(method: "browser.cdp.close", params: ["surface_id": sid])
             output(payload, fallback: "OK")
             return
         }
